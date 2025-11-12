@@ -430,6 +430,285 @@ function initializeMarker(preferences) {
     });
   }
 
+  // Test function to check if fetch is working
+  async function testFetch() {
+    console.log("Testing basic fetch...");
+    try {
+      const response = await fetch('https://www.researchcatalogue.net/', {
+        method: 'GET',
+        credentials: 'include'
+      });
+      console.log("Test fetch successful:", response.status, response.statusText);
+      return true;
+    } catch (error) {
+      console.error("Test fetch failed:", error);
+      return false;
+    }
+  }
+
+  // Research Catalogue Integration Functions
+  async function rcMediaAdd(mediaName, copyrightholder, description = '', expositionId = null) {
+    console.log("rcMediaAdd called with:", { mediaName, copyrightholder, description, expositionId });
+    
+    const formData = new FormData();
+    
+    // Try to get exposition ID from URL if not provided
+    if (!expositionId) {
+      const urlMatch = window.location.href.match(/\/view\/(\d+)/);
+      if (urlMatch) {
+        expositionId = urlMatch[1];
+        console.log("Extracted exposition ID from URL:", expositionId);
+      }
+    }
+    
+    if (!expositionId) {
+      console.error("Could not determine exposition ID from URL:", window.location.href);
+      throw new Error('Could not determine exposition ID');
+    }
+    
+    formData.append('research', expositionId);
+    formData.append('image[mediatype]', 'image');
+    formData.append('image[name]', mediaName);
+    formData.append('image[copyrightholder]', copyrightholder);
+    formData.append('image[license]', 'cc-by-nc-nd');
+    formData.append('image[description]', description);
+    formData.append('image[submitbutton]', 'image[submitbutton]');
+    formData.append('iframe-submit', 'true');
+    
+    // Empty media file (will be uploaded separately)
+    formData.append('media', new Blob([''], { type: 'application/octet-stream' }), '');
+    
+    console.log("Making request to /simple-media/add");
+    console.log("FormData contents:");
+    for (let [key, value] of formData) {
+      console.log(`  ${key}:`, value);
+    }
+    
+    try {
+      console.log("About to make fetch request...");
+      const response = await fetch('https://www.researchcatalogue.net/simple-media/add', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include' // Include browser cookies
+      });
+      
+      console.log("Fetch completed. Response:", response);
+      console.log("Response status:", response.status, response.statusText);
+      console.log("Response headers:", [...response.headers.entries()]);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const responseText = await response.text();
+      console.log("Response text length:", responseText.length);
+      console.log("Response text:", responseText.substring(0, 500) + "...");
+      
+      // Extract media ID from response
+      const match = responseText.match(/parent\.window\.formAction\s*=\s*['"]\/?simple-media\/edit\?file=(\d+)['"];/);
+      if (match) {
+        console.log("Extracted media ID:", match[1]);
+        return match[1];
+      } else {
+        console.error("Failed to extract media ID from response. Full response:", responseText);
+        throw new Error('Failed to extract media ID from response');
+      }
+    } catch (error) {
+      console.error("Fetch error details:", error);
+      console.error("Error name:", error.name);
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      throw new Error(`RC media_add failed: ${error.message}`);
+    }
+  }
+
+  async function rcMediaUpload(mediaId, svgData, filename) {
+    console.log("rcMediaUpload called with:", { mediaId, filename, svgDataLength: svgData.length });
+    
+    const formData = new FormData();
+    
+    formData.append('file', mediaId);
+    formData.append('submit-async-file', 'false');
+    formData.append('image[submitbutton]', 'imageimage[submitbutton]');
+    formData.append('iframe-submit', 'true');
+    
+    // Create SVG blob and append as file
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+    formData.append('media', svgBlob, filename);
+    
+    console.log("Upload FormData contents:");
+    for (let [key, value] of formData) {
+      if (key === 'media') {
+        console.log(`  ${key}:`, value, 'size:', value.size, 'type:', value.type);
+      } else {
+        console.log(`  ${key}:`, value);
+      }
+    }
+    
+    try {
+      console.log("Making upload request to /file/edit");
+      const response = await fetch('https://www.researchcatalogue.net/file/edit', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+      
+      console.log("Upload response:", response.status, response.statusText);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Upload error response:", errorText);
+        throw new Error(`Upload failed with status: ${response.status}`);
+      }
+      
+      const responseText = await response.text();
+      console.log("Upload response text:", responseText.substring(0, 200) + "...");
+      
+      return true;
+    } catch (error) {
+      console.error("Upload error:", error);
+      throw new Error(`RC media_upload failed: ${error.message}`);
+    }
+  }
+
+  async function rcItemAdd(pageId, mediaId, x, y, w, h, expositionId = null) {
+    console.log("rcItemAdd called with:", { pageId, mediaId, x, y, w, h, expositionId });
+    console.log("Current URL:", window.location.href);
+    
+    // Try to get exposition ID from URL if not provided
+    if (!expositionId) {
+      const urlMatch = window.location.href.match(/\/view\/(\d+)/);
+      if (urlMatch) {
+        expositionId = urlMatch[1];
+        console.log("Extracted exposition ID from URL:", expositionId);
+      }
+    }
+    
+    if (!expositionId) {
+      console.error("Could not determine exposition ID from URL:", window.location.href);
+      throw new Error('Could not determine exposition ID');
+    }
+    
+    console.log("Using exposition ID:", expositionId, "pageId:", pageId);
+    
+    const formData = new FormData();
+    formData.append('research', expositionId);
+    formData.append('weave', pageId);
+    formData.append('toolType', 'picture');
+    formData.append('tool', 'picture');
+    formData.append('file', mediaId);
+    formData.append('left', x.toString());
+    formData.append('top', y.toString());
+    formData.append('width', w.toString());
+    formData.append('height', h.toString());
+    
+    console.log("Item add FormData:");
+    for (let [key, value] of formData) {
+      console.log(`  ${key}: ${value}`);
+    }
+    
+    try {
+      console.log("Making item add request...");
+      const response = await fetch('https://www.researchcatalogue.net/item/add', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+      
+      console.log("Item add response status:", response.status, response.statusText);
+      
+      const responseText = await response.text();
+      console.log("Item add response text length:", responseText.length);
+      console.log("Item add response text (first 500 chars):", responseText.substring(0, 500));
+      
+      // Check for common error indicators
+      if (responseText.includes('error') || responseText.includes('Error') || responseText.includes('failed')) {
+        console.error("Error detected in response:", responseText);
+      }
+      
+      // Check for validation errors
+      if (responseText.includes('formIsValid = 0')) {
+        console.error("Form validation failed");
+        throw new Error('Item add form validation failed');
+      }
+      
+      // Extract item ID from response
+      const match = responseText.match(/data-id="(\d+)"/);
+      if (match) {
+        console.log("Successfully extracted item ID:", match[1]);
+        return match[1];
+      } else {
+        console.error("Failed to extract item ID - trying alternative patterns");
+        // Try other common patterns
+        const altMatch1 = responseText.match(/item["\s]*:.*?(\d+)/);
+        const altMatch2 = responseText.match(/id["\s]*:.*?(\d+)/);
+        const altMatch3 = responseText.match(/"id":\s*"?(\d+)"?/);
+        
+        if (altMatch1) {
+          console.log("Found item ID with pattern 1:", altMatch1[1]);
+          return altMatch1[1];
+        } else if (altMatch2) {
+          console.log("Found item ID with pattern 2:", altMatch2[1]);
+          return altMatch2[1];
+        } else if (altMatch3) {
+          console.log("Found item ID with pattern 3:", altMatch3[1]);
+          return altMatch3[1];
+        } else {
+          console.error("All ID extraction patterns failed");
+          throw new Error('Failed to extract item ID from response');
+        }
+      }
+    } catch (error) {
+      console.error("rcItemAdd error:", error);
+      throw new Error(`RC item_add failed: ${error.message}`);
+    }
+  }
+
+  async function uploadToResearchCatalogue(svgData, filename, options = {}) {
+    const {
+      mediaName = `Web Marker Drawing - ${new Date().toLocaleString()}`,
+      copyrightholder = 'Web Marker User',
+      description = `Drawing created with Web Marker on ${window.location.href}`,
+      pageId = null,
+      position = { x: 100, y: 100, w: 400, h: 300 }
+    } = options;
+    
+    try {
+      console.log('Starting RC upload...');
+      
+      // Test basic connectivity first
+      console.log('Testing basic fetch connectivity...');
+      const fetchTest = await testFetch();
+      if (!fetchTest) {
+        throw new Error('Basic fetch test failed - network connectivity issue');
+      }
+      
+      // Step 1: Add media entry
+      console.log('Adding media entry...');
+      const mediaId = await rcMediaAdd(mediaName, copyrightholder, description);
+      console.log('Media ID:', mediaId);
+      
+      // Step 2: Upload SVG file
+      console.log('Uploading SVG file...');
+      await rcMediaUpload(mediaId, svgData, filename);
+      console.log('SVG uploaded successfully');
+      
+      // Step 3: Add to page if pageId provided
+      if (pageId) {
+        console.log('Adding item to page...');
+        const itemId = await rcItemAdd(pageId, mediaId, position.x, position.y, position.w, position.h);
+        console.log('Item ID:', itemId);
+        return { mediaId, itemId };
+      }
+      
+      return { mediaId };
+      
+    } catch (error) {
+      console.error('RC upload failed:', error);
+      throw error;
+    }
+  }
+
   // Save drawing function - export canvas as SVG
   function saveDrawing() {
     try {
@@ -448,16 +727,112 @@ function initializeMarker(preferences) {
         ("0" + currentDate.getHours()).slice(-2) +
         ("0" + currentDate.getMinutes()).slice(-2);
 
-      // Create and download SVG file
+      const filename = "WebMarker_Drawing_" + dateString + ".svg";
+
+      // Show options dialog for save method
+      console.log("Showing save options dialog...");
+      const saveOptions = confirm(
+        "Choose save option:\n\n" +
+        "OK = Download locally + Upload to Research Catalogue\n" +
+        "Cancel = Download locally only"
+      );
+      
+      console.log("Save options result:", saveOptions);
+
+      // Always download locally first
       const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
       const downloadLink = document.createElement("a");
-      downloadLink.download = "WebMarker_Drawing_" + dateString + ".svg";
+      downloadLink.download = filename;
       downloadLink.href = URL.createObjectURL(svgBlob);
       document.body.appendChild(downloadLink);
       downloadLink.click();
       document.body.removeChild(downloadLink);
 
-      // Optionally open SVG in new window for preview
+      // If user chose to upload to RC
+      if (saveOptions) {
+        console.log("User chose to upload to RC");
+        
+        // Check if we're on a Research Catalogue page
+        const isRCPage = window.location.hostname.includes('researchcatalogue.net');
+        console.log("Is RC page:", isRCPage, "hostname:", window.location.hostname);
+        
+        if (isRCPage) {
+          console.log("Starting RC upload process...");
+          
+          // Show upload progress
+          const uploadStatus = document.createElement('div');
+          uploadStatus.style.cssText = `
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            background: #4CAF50; 
+            color: white; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            z-index: 9999999; 
+            font-family: Arial; 
+            font-size: 14px;
+          `;
+          uploadStatus.textContent = 'Uploading to Research Catalogue...';
+          document.body.appendChild(uploadStatus);
+          
+          // Extract page ID if we're viewing a specific page
+          console.log("Extracting page ID from URL:", window.location.href);
+          
+          // Try multiple patterns for RC URLs
+          let pageMatch = window.location.href.match(/\/view\/\d+\/(\d+)/); // /view/expositionId/pageId
+          let pageId = pageMatch ? pageMatch[1] : null;
+          
+          if (!pageId) {
+            // Try alternative patterns
+            pageMatch = window.location.href.match(/\/weave\/(\d+)/); // /weave/pageId
+            pageId = pageMatch ? pageMatch[1] : null;
+          }
+          
+          if (!pageId) {
+            // Try yet another pattern
+            pageMatch = window.location.href.match(/[?&]weave=(\d+)/); // ?weave=pageId or &weave=pageId
+            pageId = pageMatch ? pageMatch[1] : null;
+          }
+          
+          console.log("Detected page ID:", pageId, "from URL:", window.location.href);
+          
+          // Get actual canvas dimensions for proper positioning
+          const canvasWidth = fabricCanvas.getWidth();
+          const canvasHeight = fabricCanvas.getHeight();
+          console.log("Using canvas dimensions:", canvasWidth, "x", canvasHeight);
+          
+          // Upload to Research Catalogue
+          uploadToResearchCatalogue(svgData, filename, {
+            mediaName: `Web Marker Drawing - ${new Date().toLocaleString()}`,
+            copyrightholder: prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User',
+            description: `Drawing created with Web Marker extension on ${window.location.href}`,
+            pageId: pageId,
+            position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
+          }).then((result) => {
+            uploadStatus.style.background = '#4CAF50';
+            uploadStatus.textContent = `✓ Successfully uploaded to RC! Media ID: ${result.mediaId}`;
+            setTimeout(() => {
+              document.body.removeChild(uploadStatus);
+            }, 5000);
+            console.log('RC upload result:', result);
+          }).catch((error) => {
+            uploadStatus.style.background = '#f44336';
+            uploadStatus.textContent = `✗ Upload failed: ${error.message}`;
+            setTimeout(() => {
+              document.body.removeChild(uploadStatus);
+            }, 10000);
+            console.error('RC upload error:', error);
+          });
+        } else {
+          console.log("Not on RC page, showing alert");
+          alert('Research Catalogue upload is only available when using the extension on researchcatalogue.net pages.');
+        }
+      } else {
+        console.log("User chose local download only");
+      }
+
+      // Open preview window
       const htmlContent = `
         <!DOCTYPE html>
         <html>
