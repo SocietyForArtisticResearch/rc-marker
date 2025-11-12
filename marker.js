@@ -115,7 +115,7 @@ function initializeMarker(preferences) {
     documentElement.offsetHeight
   );
 
-  // Check for container-weave to get actual scrollable width
+  // Detect the scrolling container-weave and get the actual scrollable width
   const containerWeave = document.querySelector('#container-weave, .container-weave');
   let canvasWidth = document.body.clientWidth; // default fallback
   
@@ -430,58 +430,81 @@ function initializeMarker(preferences) {
     });
   }
 
-  // Save drawing function
+  // Save drawing function - export canvas as SVG
   function saveDrawing() {
-    const toolbar = document.getElementById("webMarker_draggable");
+    try {
+      // Export the canvas as SVG
+      const svgData = fabricCanvas.toSVG();
+      
+      // Create date string for filename
+      const currentDate = new Date();
+      const dateString =
+        currentDate.getFullYear() +
+        "-" +
+        ("0" + (currentDate.getMonth() + 1)).slice(-2) +
+        "-" +
+        ("0" + currentDate.getDate()).slice(-2) +
+        "_" +
+        ("0" + currentDate.getHours()).slice(-2) +
+        ("0" + currentDate.getMinutes()).slice(-2);
 
-    return new Promise(function (resolve, reject) {
-      toolbar.style.display = "none";
-      setTimeout(function () {
-        if (toolbar.style.display === "none") {
-          resolve();
-        } else {
-          reject();
-        }
-      }, 500);
-    })
-      .then(function () {
-        chrome.runtime.sendMessage(
-          { from: "content_script" },
-          function (response) {
-            const screenshot = response.screenshot;
-            const currentDate = new Date();
-            const dateString =
-              currentDate.getFullYear() +
-              "-" +
-              ("0" + (currentDate.getMonth() + 1)).slice(-2) +
-              "-" +
-              ("0" + currentDate.getDate()).slice(-2);
+      // Create and download SVG file
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+      const downloadLink = document.createElement("a");
+      downloadLink.download = "WebMarker_Drawing_" + dateString + ".svg";
+      downloadLink.href = URL.createObjectURL(svgBlob);
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
 
-            // Download screenshot
-            const downloadLink = document.createElement("a");
-            downloadLink.download =
-              "Screenshot_" + dateString + "_WebMarker.png";
-            downloadLink.href = screenshot;
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
+      // Optionally open SVG in new window for preview
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Web Marker Drawing</title>
+          <style>
+            body { 
+              font-family: Arial, sans-serif; 
+              margin: 20px; 
+              background-color: #f5f5f5; 
+            }
+            .container { 
+              background: white; 
+              padding: 20px; 
+              border-radius: 8px; 
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+            }
+            svg { 
+              border: 1px solid #ddd; 
+              border-radius: 4px; 
+              background: white; 
+              max-width: 100%; 
+              height: auto; 
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>Web Marker Drawing</h1>
+            <p>Created: ${new Date().toLocaleString()}</p>
+            <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
+            ${svgData}
+          </div>
+        </body>
+        </html>
+      `;
+      
+      const htmlBlob = new Blob([htmlContent], { type: "text/html" });
+      const previewUrl = URL.createObjectURL(htmlBlob);
+      window.open(previewUrl);
 
-            // Open in new window
-            const htmlContent = `
-          <h1 style="font-family:Helvetica;">Web Marker Screenshot</h1>
-          <img width="100%" src="${screenshot}">
-        `;
-            const blob = new Blob([htmlContent], { type: "text/html" });
-            const url = URL.createObjectURL(blob);
-            window.open(url);
-
-            toolbar.style.display = "block";
-          }
-        );
-      })
-      .catch(function () {
-        console.error("An error occurred while saving.");
-      });
+      console.log("Canvas exported as SVG successfully");
+      
+    } catch (error) {
+      console.error("Error exporting canvas as SVG:", error);
+      alert("Error saving drawing. Please try again.");
+    }
   }
 
   // Clear canvas function
