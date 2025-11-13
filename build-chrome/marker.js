@@ -677,12 +677,10 @@ function initializeMarker(preferences) {
       }
       
       const results = [];
+      let processedCount = 0;
       
-      // Process each object sequentially to avoid timing issues
       for (let i = 0; i < canvasObjects.length; i++) {
         const obj = canvasObjects[i];
-        
-        console.log(`Starting upload for object ${i + 1}/${canvasObjects.length}`);
         
         // Update progress
         uploadStatus.textContent = `Uploading path ${i + 1}/${canvasObjects.length}...`;
@@ -690,50 +688,37 @@ function initializeMarker(preferences) {
         try {
           // Get object bounds
           const boundingRect = obj.getBoundingRect();
-          console.log(`Object ${i + 1} bounds:`, boundingRect);
-          
-          // Ensure minimum dimensions
-          const width = Math.max(boundingRect.width, 10);
-          const height = Math.max(boundingRect.height, 10);
+          console.log(`Object ${i} bounds:`, boundingRect);
           
           // Create individual SVG for this object
           const tempCanvas = new fabric.Canvas();
-          tempCanvas.setWidth(width + 20); // Add padding
-          tempCanvas.setHeight(height + 20);
+          tempCanvas.setWidth(boundingRect.width + 20); // Add padding
+          tempCanvas.setHeight(boundingRect.height + 20);
           
           // Clone object and center it in temp canvas
-          console.log(`Cloning object ${i + 1}...`);
-          const clonedObj = await new Promise((resolve, reject) => {
-            try {
-              obj.clone((cloned) => {
-                cloned.set({
-                  left: 10, // Padding offset
-                  top: 10,
-                  originX: 'left',
-                  originY: 'top'
-                });
-                resolve(cloned);
+          const clonedObj = await new Promise((resolve) => {
+            obj.clone((cloned) => {
+              cloned.set({
+                left: 10, // Padding offset
+                top: 10,
+                originX: 'left',
+                originY: 'top'
               });
-            } catch (error) {
-              reject(error);
-            }
+              resolve(cloned);
+            });
           });
           
           tempCanvas.add(clonedObj);
-          tempCanvas.renderAll(); // Ensure rendering is complete
           const pathSVG = tempCanvas.toSVG();
           
-          console.log(`Generated SVG for object ${i + 1}, length: ${pathSVG.length}`);
-          
           // Generate filename for this path
-          const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '');
-          const pathFilename = `WebMarker_Path_${i + 1}_${timestamp}.svg`;
+          const pathFilename = `WebMarker_Path_${i + 1}_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.svg`;
           
           // Upload this individual path
           const mediaName = `Web Marker Path ${i + 1} - ${new Date().toLocaleString()}`;
           const description = `Individual drawing path ${i + 1} created with Web Marker extension on ${window.location.href}`;
           
-          console.log(`Starting upload for path ${i + 1}:`, mediaName);
+          console.log(`Uploading path ${i + 1}:`, mediaName);
           
           const result = await uploadToResearchCatalogue(pathSVG, pathFilename, {
             mediaName: mediaName,
@@ -743,8 +728,8 @@ function initializeMarker(preferences) {
             position: { 
               x: Math.round(boundingRect.left), 
               y: Math.round(boundingRect.top), 
-              w: Math.round(width), 
-              h: Math.round(height) 
+              w: Math.round(boundingRect.width), 
+              h: Math.round(boundingRect.height) 
             }
           });
           
@@ -752,34 +737,19 @@ function initializeMarker(preferences) {
             objectIndex: i,
             mediaId: result.mediaId,
             itemId: result.itemId,
-            bounds: boundingRect,
-            filename: pathFilename
+            bounds: boundingRect
           });
           
-          console.log(`✅ Successfully uploaded path ${i + 1}/${canvasObjects.length}:`, result);
-          
-          // Small delay between uploads to avoid overwhelming the server
-          await new Promise(resolve => setTimeout(resolve, 500));
+          processedCount++;
+          console.log(`Successfully uploaded path ${i + 1}:`, result);
           
         } catch (error) {
-          console.error(`❌ Failed to upload path ${i + 1}:`, error);
+          console.error(`Failed to upload path ${i + 1}:`, error);
           // Continue with other paths even if one fails
-          results.push({
-            objectIndex: i,
-            error: error.message,
-            bounds: obj.getBoundingRect()
-          });
         }
       }
       
-      const successfulUploads = results.filter(r => !r.error).length;
-      console.log(`🎉 Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully`);
-      console.log('All results:', results);
-      
-      if (successfulUploads === 0) {
-        throw new Error('All path uploads failed');
-      }
-      
+      console.log(`Upload complete: ${processedCount}/${canvasObjects.length} paths uploaded successfully`);
       return results;
       
     } catch (error) {
@@ -860,66 +830,22 @@ function initializeMarker(preferences) {
       const saveOption = prompt(
         "Choose save option:\n\n" +
         "1 = Download locally only\n" +
-        "2 = Upload single SVG to Research Catalogue\n" +
-        "3 = Upload individual paths to Research Catalogue\n\n" +
+        "2 = Download + Upload single SVG to Research Catalogue\n" +
+        "3 = Download + Upload individual paths to Research Catalogue\n\n" +
         "Enter your choice (1, 2, or 3):", 
         "1"
       );
       
       console.log("Save options result:", saveOption);
 
-      // Download locally only for option 1
-      if (saveOption === "1") {
-        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-        const downloadLink = document.createElement("a");
-        downloadLink.download = filename;
-        downloadLink.href = URL.createObjectURL(svgBlob);
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        console.log("File downloaded locally");
-        
-        // Show preview window for local download
-        const htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Web Marker Drawing</title>
-            <style>
-              body { 
-                font-family: Arial, sans-serif; 
-                margin: 20px; 
-                background-color: #f5f5f5; 
-              }
-              .container { 
-                background: white; 
-                padding: 20px; 
-                border-radius: 8px; 
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-              }
-              svg { 
-                border: 1px solid #ddd; 
-                border-radius: 4px; 
-                max-width: 100%; 
-                height: auto; 
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>Web Marker Drawing Preview</h1>
-              <p>Created: ${new Date().toLocaleString()}</p>
-              <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
-              ${svgData}
-            </div>
-          </body>
-          </html>
-        `;
-        
-        const htmlBlob = new Blob([htmlContent], { type: "text/html" });
-        const previewUrl = URL.createObjectURL(htmlBlob);
-        window.open(previewUrl);
-      }
+      // Always download locally first
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+      const downloadLink = document.createElement("a");
+      downloadLink.download = filename;
+      downloadLink.href = URL.createObjectURL(svgBlob);
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
 
       // Handle the different save options
       if (saveOption === "2" || saveOption === "3") {
@@ -947,6 +873,7 @@ function initializeMarker(preferences) {
             font-size: 14px;
           `;
           uploadStatus.textContent = saveOption === "2" ? 'Uploading single SVG to Research Catalogue...' : 'Uploading individual paths to Research Catalogue...';
+          document.body.appendChild(uploadStatus);
           document.body.appendChild(uploadStatus);
           
           // Extract page ID if we're viewing a specific page
@@ -1004,7 +931,7 @@ function initializeMarker(preferences) {
             uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
               .then((results) => {
                 uploadStatus.style.background = '#4CAF50';
-                uploadStatus.textContent = `✓ Successfully uploaded ${results.filter(r => !r.error).length} paths to RC!`;
+                uploadStatus.textContent = `✓ Successfully uploaded ${results.length} paths to RC!`;
                 setTimeout(() => {
                   document.body.removeChild(uploadStatus);
                 }, 5000);

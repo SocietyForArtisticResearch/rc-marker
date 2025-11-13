@@ -664,6 +664,130 @@ function initializeMarker(preferences) {
     }
   }
 
+  async function uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus) {
+    try {
+      console.log('Starting individual paths upload...');
+      
+      // Get all objects from canvas
+      const canvasObjects = fabricCanvas.getObjects();
+      console.log(`Found ${canvasObjects.length} objects on canvas`);
+      
+      if (canvasObjects.length === 0) {
+        throw new Error('No drawing objects found on canvas');
+      }
+      
+      const results = [];
+      
+      // Process each object sequentially to avoid timing issues
+      for (let i = 0; i < canvasObjects.length; i++) {
+        const obj = canvasObjects[i];
+        
+        console.log(`Starting upload for object ${i + 1}/${canvasObjects.length}`);
+        
+        // Update progress
+        uploadStatus.textContent = `Uploading path ${i + 1}/${canvasObjects.length}...`;
+        
+        try {
+          // Get object bounds
+          const boundingRect = obj.getBoundingRect();
+          console.log(`Object ${i + 1} bounds:`, boundingRect);
+          
+          // Ensure minimum dimensions
+          const width = Math.max(boundingRect.width, 10);
+          const height = Math.max(boundingRect.height, 10);
+          
+          // Create individual SVG for this object
+          const tempCanvas = new fabric.Canvas();
+          tempCanvas.setWidth(width + 20); // Add padding
+          tempCanvas.setHeight(height + 20);
+          
+          // Clone object and center it in temp canvas
+          console.log(`Cloning object ${i + 1}...`);
+          const clonedObj = await new Promise((resolve, reject) => {
+            try {
+              obj.clone((cloned) => {
+                cloned.set({
+                  left: 10, // Padding offset
+                  top: 10,
+                  originX: 'left',
+                  originY: 'top'
+                });
+                resolve(cloned);
+              });
+            } catch (error) {
+              reject(error);
+            }
+          });
+          
+          tempCanvas.add(clonedObj);
+          tempCanvas.renderAll(); // Ensure rendering is complete
+          const pathSVG = tempCanvas.toSVG();
+          
+          console.log(`Generated SVG for object ${i + 1}, length: ${pathSVG.length}`);
+          
+          // Generate filename for this path
+          const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '');
+          const pathFilename = `WebMarker_Path_${i + 1}_${timestamp}.svg`;
+          
+          // Upload this individual path
+          const mediaName = `Web Marker Path ${i + 1} - ${new Date().toLocaleString()}`;
+          const description = `Individual drawing path ${i + 1} created with Web Marker extension on ${window.location.href}`;
+          
+          console.log(`Starting upload for path ${i + 1}:`, mediaName);
+          
+          const result = await uploadToResearchCatalogue(pathSVG, pathFilename, {
+            mediaName: mediaName,
+            copyrightholder: copyrightholder,
+            description: description,
+            pageId: pageId,
+            position: { 
+              x: Math.round(boundingRect.left), 
+              y: Math.round(boundingRect.top), 
+              w: Math.round(width), 
+              h: Math.round(height) 
+            }
+          });
+          
+          results.push({
+            objectIndex: i,
+            mediaId: result.mediaId,
+            itemId: result.itemId,
+            bounds: boundingRect,
+            filename: pathFilename
+          });
+          
+          console.log(`✅ Successfully uploaded path ${i + 1}/${canvasObjects.length}:`, result);
+          
+          // Small delay between uploads to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (error) {
+          console.error(`❌ Failed to upload path ${i + 1}:`, error);
+          // Continue with other paths even if one fails
+          results.push({
+            objectIndex: i,
+            error: error.message,
+            bounds: obj.getBoundingRect()
+          });
+        }
+      }
+      
+      const successfulUploads = results.filter(r => !r.error).length;
+      console.log(`🎉 Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully`);
+      console.log('All results:', results);
+      
+      if (successfulUploads === 0) {
+        throw new Error('All path uploads failed');
+      }
+      
+      return results;
+      
+    } catch (error) {
+      console.error('Individual paths upload failed:', error);
+      throw error;
+    }
+  }
+
   async function uploadToResearchCatalogue(svgData, filename, options = {}) {
     const {
       mediaName = `Web Marker Drawing - ${new Date().toLocaleString()}`,
@@ -731,26 +855,75 @@ function initializeMarker(preferences) {
 
       // Show options dialog for save method
       console.log("Showing save options dialog...");
-      const saveOptions = confirm(
+      
+      // Create a more sophisticated dialog for three options
+      const saveOption = prompt(
         "Choose save option:\n\n" +
-        "OK = Download locally + Upload to Research Catalogue\n" +
-        "Cancel = Download locally only"
+        "1 = Download locally only\n" +
+        "2 = Upload single SVG to Research Catalogue\n" +
+        "3 = Upload individual paths to Research Catalogue\n\n" +
+        "Enter your choice (1, 2, or 3):", 
+        "1"
       );
       
-      console.log("Save options result:", saveOptions);
+      console.log("Save options result:", saveOption);
 
-      // Always download locally first
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-      const downloadLink = document.createElement("a");
-      downloadLink.download = filename;
-      downloadLink.href = URL.createObjectURL(svgBlob);
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
+      // Download locally only for option 1
+      if (saveOption === "1") {
+        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+        const downloadLink = document.createElement("a");
+        downloadLink.download = filename;
+        downloadLink.href = URL.createObjectURL(svgBlob);
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        console.log("File downloaded locally");
+        
+        // Show preview window for local download
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Web Marker Drawing</title>
+            <style>
+              body { 
+                font-family: Arial, sans-serif; 
+                margin: 20px; 
+                background-color: #f5f5f5; 
+              }
+              .container { 
+                background: white; 
+                padding: 20px; 
+                border-radius: 8px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+              }
+              svg { 
+                border: 1px solid #ddd; 
+                border-radius: 4px; 
+                max-width: 100%; 
+                height: auto; 
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Web Marker Drawing Preview</h1>
+              <p>Created: ${new Date().toLocaleString()}</p>
+              <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
+              ${svgData}
+            </div>
+          </body>
+          </html>
+        `;
+        
+        const htmlBlob = new Blob([htmlContent], { type: "text/html" });
+        const previewUrl = URL.createObjectURL(htmlBlob);
+        window.open(previewUrl);
+      }
 
-      // If user chose to upload to RC
-      if (saveOptions) {
-        console.log("User chose to upload to RC");
+      // Handle the different save options
+      if (saveOption === "2" || saveOption === "3") {
+        console.log("User chose to upload to RC - option:", saveOption);
         
         // Check if we're on a Research Catalogue page
         const isRCPage = window.location.hostname.includes('researchcatalogue.net');
@@ -773,7 +946,7 @@ function initializeMarker(preferences) {
             font-family: Arial; 
             font-size: 14px;
           `;
-          uploadStatus.textContent = 'Uploading to Research Catalogue...';
+          uploadStatus.textContent = saveOption === "2" ? 'Uploading single SVG to Research Catalogue...' : 'Uploading individual paths to Research Catalogue...';
           document.body.appendChild(uploadStatus);
           
           // Extract page ID if we're viewing a specific page
@@ -802,28 +975,50 @@ function initializeMarker(preferences) {
           const canvasHeight = fabricCanvas.getHeight();
           console.log("Using canvas dimensions:", canvasWidth, "x", canvasHeight);
           
-          // Upload to Research Catalogue
-          uploadToResearchCatalogue(svgData, filename, {
-            mediaName: `Web Marker Drawing - ${new Date().toLocaleString()}`,
-            copyrightholder: prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User',
-            description: `Drawing created with Web Marker extension on ${window.location.href}`,
-            pageId: pageId,
-            position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
-          }).then((result) => {
-            uploadStatus.style.background = '#4CAF50';
-            uploadStatus.textContent = `✓ Successfully uploaded to RC! Media ID: ${result.mediaId}`;
-            setTimeout(() => {
-              document.body.removeChild(uploadStatus);
-            }, 5000);
-            console.log('RC upload result:', result);
-          }).catch((error) => {
-            uploadStatus.style.background = '#f44336';
-            uploadStatus.textContent = `✗ Upload failed: ${error.message}`;
-            setTimeout(() => {
-              document.body.removeChild(uploadStatus);
-            }, 10000);
-            console.error('RC upload error:', error);
-          });
+          if (saveOption === "2") {
+            // Upload single SVG (existing functionality)
+            uploadToResearchCatalogue(svgData, filename, {
+              mediaName: `Web Marker Drawing - ${new Date().toLocaleString()}`,
+              copyrightholder: prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User',
+              description: `Drawing created with Web Marker extension on ${window.location.href}`,
+              pageId: pageId,
+              position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
+            }).then((result) => {
+              uploadStatus.style.background = '#4CAF50';
+              uploadStatus.textContent = `✓ Successfully uploaded single SVG to RC! Media ID: ${result.mediaId}`;
+              setTimeout(() => {
+                document.body.removeChild(uploadStatus);
+              }, 5000);
+              console.log('RC upload result:', result);
+            }).catch((error) => {
+              uploadStatus.style.background = '#f44336';
+              uploadStatus.textContent = `✗ Single SVG upload failed: ${error.message}`;
+              setTimeout(() => {
+                document.body.removeChild(uploadStatus);
+              }, 10000);
+              console.error('RC upload error:', error);
+            });
+          } else if (saveOption === "3") {
+            // Upload individual paths (new functionality)
+            const copyrightholder = prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User';
+            uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
+              .then((results) => {
+                uploadStatus.style.background = '#4CAF50';
+                uploadStatus.textContent = `✓ Successfully uploaded ${results.filter(r => !r.error).length} paths to RC!`;
+                setTimeout(() => {
+                  document.body.removeChild(uploadStatus);
+                }, 5000);
+                console.log('RC multi-path upload results:', results);
+              })
+              .catch((error) => {
+                uploadStatus.style.background = '#f44336';
+                uploadStatus.textContent = `✗ Multi-path upload failed: ${error.message}`;
+                setTimeout(() => {
+                  document.body.removeChild(uploadStatus);
+                }, 10000);
+                console.error('RC multi-path upload error:', error);
+              });
+          }
         } else {
           console.log("Not on RC page, showing alert");
           alert('Research Catalogue upload is only available when using the extension on researchcatalogue.net pages.');
