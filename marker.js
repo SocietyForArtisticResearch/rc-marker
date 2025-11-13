@@ -779,25 +779,27 @@ function initializeMarker(preferences) {
           const boundingRect = obj.getBoundingRect();
           console.log(`Object ${i + 1} bounds:`, boundingRect);
           
-          // Ensure minimum dimensions
-          const width = Math.max(boundingRect.width, 10);
-          const height = Math.max(boundingRect.height, 10);
-          
-          // Create individual SVG for this object
+          // Create individual SVG for this object using the full canvas size to preserve scale
           const tempCanvas = new fabric.Canvas();
-          tempCanvas.setWidth(width + 20); // Add padding
-          tempCanvas.setHeight(height + 20);
+          tempCanvas.setWidth(fabricCanvas.getWidth());
+          tempCanvas.setHeight(fabricCanvas.getHeight());
           
-          // Clone object and center it in temp canvas
+          // Clone object and preserve its exact position and properties
           console.log(`Cloning object ${i + 1}...`);
           const clonedObj = await new Promise((resolve, reject) => {
             try {
               obj.clone((cloned) => {
+                // Keep the exact same position and properties as the original
                 cloned.set({
-                  left: 10, // Padding offset
-                  top: 10,
-                  originX: 'left',
-                  originY: 'top'
+                  left: obj.left,
+                  top: obj.top,
+                  scaleX: obj.scaleX || 1,
+                  scaleY: obj.scaleY || 1,
+                  angle: obj.angle || 0,
+                  strokeWidth: obj.strokeWidth,
+                  stroke: obj.stroke,
+                  fill: obj.fill,
+                  opacity: obj.opacity
                 });
                 resolve(cloned);
               });
@@ -808,7 +810,20 @@ function initializeMarker(preferences) {
           
           tempCanvas.add(clonedObj);
           tempCanvas.renderAll(); // Ensure rendering is complete
-          const pathSVG = tempCanvas.toSVG();
+          
+          // Create SVG with a viewBox that crops to just the object's area
+          const padding = 10;
+          const cropX = Math.max(0, boundingRect.left - padding);
+          const cropY = Math.max(0, boundingRect.top - padding);
+          const cropWidth = boundingRect.width + (2 * padding);
+          const cropHeight = boundingRect.height + (2 * padding);
+          
+          // Get the full SVG and then crop it using viewBox
+          const fullSVG = tempCanvas.toSVG();
+          const pathSVG = fullSVG.replace(
+            /<svg[^>]*>/,
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${cropX} ${cropY} ${cropWidth} ${cropHeight}" width="${cropWidth}" height="${cropHeight}">`
+          );
           
           console.log(`Generated SVG for object ${i + 1}, length: ${pathSVG.length}`);
           
@@ -828,10 +843,10 @@ function initializeMarker(preferences) {
             description: description,
             pageId: pageId,
             position: { 
-              x: Math.round(boundingRect.left), 
-              y: Math.round(boundingRect.top), 
-              w: Math.round(width), 
-              h: Math.round(height) 
+              x: Math.round(cropX), // Use cropX instead of boundingRect.left to account for padding offset
+              y: Math.round(cropY), // Use cropY instead of boundingRect.top to account for padding offset
+              w: Math.round(cropWidth), 
+              h: Math.round(cropHeight) 
             }
           });
           
