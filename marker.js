@@ -59,6 +59,7 @@ function loadCanvasFromStorage(fabricCanvas) {
       try {
         fabricCanvas.loadFromJSON(result[storageKey], function () {
           fabricCanvas.renderAll();
+          updateUploadIndicators(); // Show visual indicators for previously uploaded objects
           console.log("Canvas state loaded for:", window.location.href);
         });
       } catch (error) {
@@ -664,6 +665,61 @@ function initializeMarker(preferences) {
     }
   }
 
+  // Function to add visual indicators for uploaded objects
+  function updateUploadIndicators() {
+    const canvasObjects = fabricCanvas.getObjects();
+    
+    canvasObjects.forEach((obj, index) => {
+      if (obj.rcUploaded && obj.rcMediaId) {
+        // Add a subtle green border to indicate uploaded status
+        if (!obj.originalStroke) {
+          obj.originalStroke = obj.stroke || '#000000';
+        }
+        
+        // Add a small visual indicator (green tint or border)
+        if (obj.type === 'path') {
+          // For paths, add a subtle green tint
+          obj.set({
+            shadow: {
+              color: '#4CAF50',
+              blur: 2,
+              offsetX: 0,
+              offsetY: 0
+            }
+          });
+        } else {
+          // For other objects, add a green border
+          obj.set({
+            strokeWidth: (obj.originalStrokeWidth || obj.strokeWidth || 1) + 1,
+            stroke: '#4CAF50'
+          });
+        }
+        
+        console.log(`Added upload indicator to object ${index + 1} (MediaID: ${obj.rcMediaId})`);
+      }
+    });
+    
+    fabricCanvas.renderAll();
+  }
+
+  // Function to remove upload indicators
+  function removeUploadIndicators() {
+    const canvasObjects = fabricCanvas.getObjects();
+    
+    canvasObjects.forEach((obj, index) => {
+      if (obj.rcUploaded) {
+        // Remove visual indicators
+        obj.set({
+          shadow: null,
+          stroke: obj.originalStroke || obj.stroke,
+          strokeWidth: obj.originalStrokeWidth || obj.strokeWidth
+        });
+      }
+    });
+    
+    fabricCanvas.renderAll();
+  }
+
   async function uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus) {
     try {
       console.log('Starting individual paths upload...');
@@ -681,6 +737,22 @@ function initializeMarker(preferences) {
       // Process each object sequentially to avoid timing issues
       for (let i = 0; i < canvasObjects.length; i++) {
         const obj = canvasObjects[i];
+        
+        console.log(`Processing object ${i + 1}/${canvasObjects.length}`);
+        
+        // Check if this object has already been uploaded
+        if (obj.rcUploaded && obj.rcMediaId && obj.rcItemId) {
+          console.log(`✅ Object ${i + 1} already uploaded - skipping (MediaID: ${obj.rcMediaId}, ItemID: ${obj.rcItemId})`);
+          results.push({
+            objectIndex: i,
+            mediaId: obj.rcMediaId,
+            itemId: obj.rcItemId,
+            bounds: obj.getBoundingRect(),
+            skipped: true,
+            reason: 'Already uploaded'
+          });
+          continue;
+        }
         
         console.log(`Starting upload for object ${i + 1}/${canvasObjects.length}`);
         
@@ -748,6 +820,14 @@ function initializeMarker(preferences) {
             }
           });
           
+          // Mark the object as uploaded to prevent duplicate uploads
+          obj.set({
+            rcUploaded: true,
+            rcMediaId: result.mediaId,
+            rcItemId: result.itemId,
+            rcUploadedAt: new Date().toISOString()
+          });
+          
           results.push({
             objectIndex: i,
             mediaId: result.mediaId,
@@ -757,6 +837,7 @@ function initializeMarker(preferences) {
           });
           
           console.log(`✅ Successfully uploaded path ${i + 1}/${canvasObjects.length}:`, result);
+          console.log(`Marked object ${i + 1} as uploaded with MediaID: ${result.mediaId}, ItemID: ${result.itemId}`);
           
           // Small delay between uploads to avoid overwhelming the server
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -773,10 +854,19 @@ function initializeMarker(preferences) {
       }
       
       const successfulUploads = results.filter(r => !r.error).length;
-      console.log(`🎉 Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully`);
+      const skippedUploads = results.filter(r => r.skipped).length;
+      console.log(`🎉 Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully, ${skippedUploads} skipped (already uploaded)`);
       console.log('All results:', results);
       
-      if (successfulUploads === 0) {
+      // Save canvas state to persist upload tracking information
+      if (successfulUploads > 0) {
+        fabricCanvas.renderAll(); // Ensure canvas is rendered
+        saveCanvasState();
+        updateUploadIndicators(); // Add visual indicators for uploaded objects
+        console.log('Canvas state saved with upload tracking information');
+      }
+      
+      if (successfulUploads === 0 && skippedUploads === 0) {
         throw new Error('All path uploads failed');
       }
       
@@ -1003,8 +1093,16 @@ function initializeMarker(preferences) {
             const copyrightholder = prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User';
             uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
               .then((results) => {
+                const successfulUploads = results.filter(r => !r.error && !r.skipped).length;
+                const skippedUploads = results.filter(r => r.skipped).length;
                 uploadStatus.style.background = '#4CAF50';
-                uploadStatus.textContent = `✓ Successfully uploaded ${results.filter(r => !r.error).length} paths to RC!`;
+                
+                if (skippedUploads > 0) {
+                  uploadStatus.textContent = `✓ Uploaded ${successfulUploads} new paths, ${skippedUploads} already existed in RC!`;
+                } else {
+                  uploadStatus.textContent = `✓ Successfully uploaded ${successfulUploads} paths to RC!`;
+                }
+                
                 setTimeout(() => {
                   document.body.removeChild(uploadStatus);
                 }, 5000);
