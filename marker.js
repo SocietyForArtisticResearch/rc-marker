@@ -671,35 +671,42 @@ function initializeMarker(preferences) {
     
     canvasObjects.forEach((obj, index) => {
       if (obj.rcUploaded && obj.rcMediaId) {
-        // Add a subtle green border to indicate uploaded status
+        console.log(`Adding upload indicator to object ${index + 1} (Type: ${obj.type}, MediaID: ${obj.rcMediaId})`);
+        
+        // Store original properties if not already stored
         if (!obj.originalStroke) {
           obj.originalStroke = obj.stroke || '#000000';
         }
+        if (!obj.originalStrokeWidth) {
+          obj.originalStrokeWidth = obj.strokeWidth || 1;
+        }
         
-        // Add a small visual indicator (green tint or border)
+        // Add a visual indicator - different approach for different object types
         if (obj.type === 'path') {
-          // For paths, add a subtle green tint
+          // For path objects (drawing strokes), add a subtle green shadow
           obj.set({
             shadow: {
               color: '#4CAF50',
-              blur: 2,
-              offsetX: 0,
-              offsetY: 0
+              blur: 3,
+              offsetX: 1,
+              offsetY: 1
             }
           });
+          console.log(`Added shadow indicator to path object ${index + 1}`);
         } else {
-          // For other objects, add a green border
+          // For other objects (lines, text, etc.), add a green border
+          const newStrokeWidth = (obj.originalStrokeWidth || obj.strokeWidth || 1) + 2;
           obj.set({
-            strokeWidth: (obj.originalStrokeWidth || obj.strokeWidth || 1) + 1,
+            strokeWidth: newStrokeWidth,
             stroke: '#4CAF50'
           });
+          console.log(`Added border indicator to ${obj.type} object ${index + 1}`);
         }
-        
-        console.log(`Added upload indicator to object ${index + 1} (MediaID: ${obj.rcMediaId})`);
       }
     });
     
     fabricCanvas.renderAll();
+    console.log("Upload indicators updated for all objects");
   }
 
   // Function to remove upload indicators
@@ -739,6 +746,14 @@ function initializeMarker(preferences) {
         const obj = canvasObjects[i];
         
         console.log(`Processing object ${i + 1}/${canvasObjects.length}`);
+        console.log(`Object ${i + 1} details:`, {
+          type: obj.type,
+          stroke: obj.stroke,
+          fill: obj.fill,
+          opacity: obj.opacity,
+          color: obj.color,
+          isHighlighter: typeof obj.stroke === 'string' && obj.stroke.includes('rgba')
+        });
         
         // Check if this object has already been uploaded
         if (obj.rcUploaded && obj.rcMediaId && obj.rcItemId) {
@@ -968,47 +983,6 @@ function initializeMarker(preferences) {
         downloadLink.click();
         document.body.removeChild(downloadLink);
         console.log("File downloaded locally");
-        
-        // Show preview window for local download
-        const htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Web Marker Drawing</title>
-            <style>
-              body { 
-                font-family: Arial, sans-serif; 
-                margin: 20px; 
-                background-color: #f5f5f5; 
-              }
-              .container { 
-                background: white; 
-                padding: 20px; 
-                border-radius: 8px; 
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-              }
-              svg { 
-                border: 1px solid #ddd; 
-                border-radius: 4px; 
-                max-width: 100%; 
-                height: auto; 
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>Web Marker Drawing Preview</h1>
-              <p>Created: ${new Date().toLocaleString()}</p>
-              <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
-              ${svgData}
-            </div>
-          </body>
-          </html>
-        `;
-        
-        const htmlBlob = new Blob([htmlContent], { type: "text/html" });
-        const previewUrl = URL.createObjectURL(htmlBlob);
-        window.open(previewUrl);
       }
 
       // Handle the different save options
@@ -1124,48 +1098,6 @@ function initializeMarker(preferences) {
       } else {
         console.log("User chose local download only");
       }
-
-      // Open preview window
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Web Marker Drawing</title>
-          <style>
-            body { 
-              font-family: Arial, sans-serif; 
-              margin: 20px; 
-              background-color: #f5f5f5; 
-            }
-            .container { 
-              background: white; 
-              padding: 20px; 
-              border-radius: 8px; 
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-            }
-            svg { 
-              border: 1px solid #ddd; 
-              border-radius: 4px; 
-              background: white; 
-              max-width: 100%; 
-              height: auto; 
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Web Marker Drawing</h1>
-            <p>Created: ${new Date().toLocaleString()}</p>
-            <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
-            ${svgData}
-          </div>
-        </body>
-        </html>
-      `;
-      
-      const htmlBlob = new Blob([htmlContent], { type: "text/html" });
-      const previewUrl = URL.createObjectURL(htmlBlob);
-      window.open(previewUrl);
 
       console.log("Canvas exported as SVG successfully");
       
