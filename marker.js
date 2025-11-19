@@ -692,20 +692,6 @@ function initializeMarker(preferences) {
           isHighlighter: typeof obj.stroke === 'string' && obj.stroke.includes('rgba')
         });
         
-        // Check if this object has already been uploaded
-        if (obj.rcUploaded && obj.rcMediaId && obj.rcItemId) {
-          console.log(`Object ${i + 1} already uploaded - skipping (MediaID: ${obj.rcMediaId}, ItemID: ${obj.rcItemId})`);
-          results.push({
-            objectIndex: i,
-            mediaId: obj.rcMediaId,
-            itemId: obj.rcItemId,
-            bounds: obj.getBoundingRect(),
-            skipped: true,
-            reason: 'Already uploaded'
-          });
-          continue;
-        }
-        
         console.log(`Starting upload for object ${i + 1}/${canvasObjects.length}`);
         
         // Update progress
@@ -787,14 +773,6 @@ function initializeMarker(preferences) {
             }
           });
           
-          // Mark the object as uploaded to prevent duplicate uploads
-          obj.set({
-            rcUploaded: true,
-            rcMediaId: result.mediaId,
-            rcItemId: result.itemId,
-            rcUploadedAt: new Date().toISOString()
-          });
-          
           results.push({
             objectIndex: i,
             mediaId: result.mediaId,
@@ -821,18 +799,11 @@ function initializeMarker(preferences) {
       }
       
       const successfulUploads = results.filter(r => !r.error).length;
-      const skippedUploads = results.filter(r => r.skipped).length;
-      console.log(`Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully, ${skippedUploads} skipped (already uploaded)`);
+      const failedUploads = results.filter(r => r.error).length;
+      console.log(`Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully, ${failedUploads} failed`);
       console.log('All results:', results);
       
-      // Save canvas state to persist upload tracking information
-      if (successfulUploads > 0) {
-        fabricCanvas.renderAll(); // Ensure canvas is rendered
-        saveCanvasState();
-        console.log('Canvas state saved with upload tracking information');
-      }
-      
-      if (successfulUploads === 0 && skippedUploads === 0) {
+      if (successfulUploads === 0) {
         throw new Error('All path uploads failed');
       }
       
@@ -1018,19 +989,41 @@ function initializeMarker(preferences) {
             const copyrightholder = prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User';
             uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
               .then((results) => {
-                const successfulUploads = results.filter(r => !r.error && !r.skipped).length;
-                const skippedUploads = results.filter(r => r.skipped).length;
-                uploadStatus.style.background = '#4CAF50';
+                const successfulUploads = results.filter(r => !r.error).length;
+                const failedUploads = results.filter(r => r.error).length;
+                const totalObjects = fabricCanvas.getObjects().length;
                 
-                if (skippedUploads > 0) {
-                  uploadStatus.textContent = `✓ Uploaded ${successfulUploads} new paths, ${skippedUploads} already existed in RC!`;
+                // Check if ALL paths were successfully uploaded (no failures)
+                const allPathsUploaded = successfulUploads === totalObjects && failedUploads === 0;
+                
+                if (allPathsUploaded) {
+                  uploadStatus.style.background = '#4CAF50';
+                  uploadStatus.textContent = `✓ All ${totalObjects} paths uploaded successfully! Clearing canvas and reloading...`;
+                  
+                  console.log(`🎉 All ${totalObjects} paths successfully uploaded to RC! Clearing canvas and reloading page.`);
+                  
+                  // Wait a moment to show the success message, then clear and reload
+                  setTimeout(() => {
+                    // Clear the canvas
+                    fabricCanvas.clear();
+                    saveCanvasState();
+                    console.log('Canvas cleared after successful upload');
+                    
+                    // Reload the page after a short delay
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1000);
+                  }, 2000);
                 } else {
-                  uploadStatus.textContent = `✓ Successfully uploaded ${successfulUploads} paths to RC!`;
+                  // Some uploads failed
+                  uploadStatus.style.background = '#f44336'; // Red for failures
+                  uploadStatus.textContent = `✗ ${successfulUploads}/${totalObjects} uploaded successfully, ${failedUploads} failed`;
+                  
+                  setTimeout(() => {
+                    document.body.removeChild(uploadStatus);
+                  }, 8000);
                 }
                 
-                setTimeout(() => {
-                  document.body.removeChild(uploadStatus);
-                }, 5000);
                 console.log('RC multi-path upload results:', results);
               })
               .catch((error) => {
