@@ -242,6 +242,9 @@ function initializeMarker(preferences) {
   let undoStack = [];
   let redoStack = [];
 
+  // Copy-paste system
+  let clipboard = null;
+
   // Get page dimensions
   const body = document.body;
   const documentElement = document.documentElement;
@@ -1436,6 +1439,64 @@ function initializeMarker(preferences) {
       }
       fabricCanvas.discardActiveObject().renderAll();
       saveCanvasState();
+    }
+
+    // Copy selected objects with Ctrl+C (only in move mode)
+    if (event.code === "KeyC" && (event.ctrlKey || event.metaKey) && isMoveMode && !isEditingText && !isTextMode) {
+      const activeObjects = fabricCanvas.getActiveObjects();
+      if (activeObjects.length > 0) {
+        // Clone the selected objects for clipboard
+        const objectsToClone = activeObjects.length === 1 ? [activeObjects[0]] : activeObjects;
+        clipboard = [];
+        
+        objectsToClone.forEach(function(obj) {
+          obj.clone(function(cloned) {
+            clipboard.push(cloned);
+          });
+        });
+        
+        console.log(`Copied ${objectsToClone.length} object(s) to clipboard`);
+        event.preventDefault();
+      }
+    }
+
+    // Paste objects with Ctrl+V (only in move mode)
+    if (event.code === "KeyV" && (event.ctrlKey || event.metaKey) && isMoveMode && !isEditingText && !isTextMode && clipboard && clipboard.length > 0) {
+      // Clear current selection
+      fabricCanvas.discardActiveObject();
+      
+      const pastedObjects = [];
+      clipboard.forEach(function(obj) {
+        obj.clone(function(cloned) {
+          // Offset the pasted object slightly so it's visible
+          cloned.set({
+            left: cloned.left + 20,
+            top: cloned.top + 20,
+            selectable: true,
+            hoverCursor: "move"
+          });
+          
+          fabricCanvas.add(cloned);
+          pastedObjects.push(cloned);
+        });
+      });
+      
+      // Select the pasted objects
+      setTimeout(function() {
+        if (pastedObjects.length === 1) {
+          fabricCanvas.setActiveObject(pastedObjects[0]);
+        } else if (pastedObjects.length > 1) {
+          const selection = new fabric.ActiveSelection(pastedObjects, {
+            canvas: fabricCanvas
+          });
+          fabricCanvas.setActiveObject(selection);
+        }
+        fabricCanvas.renderAll();
+        saveCanvasState();
+      }, 10);
+      
+      console.log(`Pasted ${clipboard.length} object(s) from clipboard`);
+      event.preventDefault();
     }
 
     // Exit with Escape
