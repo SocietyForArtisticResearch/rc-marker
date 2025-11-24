@@ -38,15 +38,32 @@ if (document.getElementById("webMarker_canvas")) {
     msg.textContent = text;
   }
 
-  // Backwards-compatible helper: show the disabled message for non-graphical pages
+  // Backwards-compatible helper: notify inactive state for non-graphical pages (no message)
   function showDisabledMessage() {
-    showMessage('RC Pencil is only enabled for RC graphical pages');
+    notifyIconInactive();
   }
 
   // Helper: remove the disabled message (if present)
   function removeDisabledMessage() {
     const el = document.getElementById('rcp_disabled_message');
     if (el) el.remove();
+  }
+
+  // Helper: notify background script of activation state changes
+  function notifyIconActive() {
+    chrome.runtime.sendMessage({action: 'setIconActive'}, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('Failed to set icon active:', chrome.runtime.lastError);
+      }
+    });
+  }
+
+  function notifyIconInactive() {
+    chrome.runtime.sendMessage({action: 'setIconInactive'}, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('Failed to set icon inactive:', chrome.runtime.lastError);
+      }
+    });
   }
 
   // Helper: wait for the page to become 'weave-graphical' (MutationObserver) then check permissions and init
@@ -61,7 +78,7 @@ if (document.getElementById("webMarker_canvas")) {
       const m = window.location.href.match(/\/view\/(\d+)/);
       const researchId = m ? m[1] : null;
       if (!researchId) {
-        showMessage('you cannot edit this exposition');
+        notifyIconInactive();
         return;
       }
 
@@ -72,11 +89,11 @@ if (document.getElementById("webMarker_canvas")) {
           // Permission granted
           initializeMarker(preferences);
         } else {
-          showMessage('you cannot edit this exposition');
+          notifyIconInactive();
         }
       } catch (err) {
         console.error('Permission check failed:', err);
-        showMessage('you cannot edit this exposition');
+        notifyIconInactive();
       }
     }
 
@@ -104,7 +121,7 @@ if (document.getElementById("webMarker_canvas")) {
     // Timeout fallback
     const timeoutId = setTimeout(() => {
       observer.disconnect();
-      showDisabledMessage();
+      notifyIconInactive();
     }, maxWait);
 
     // If we init, clear the timeout when permission check starts
@@ -139,6 +156,9 @@ if (document.getElementById("webMarker_canvas")) {
 
 // Function to remove the marker interface
 function exitMarker() {
+  // Notify that extension is now inactive
+  notifyIconInactive();
+  
   // Save canvas state before exiting
   const canvas = document.getElementById("webMarker_canvas");
   if (canvas && window.webMarkerFabricCanvas) {
@@ -203,6 +223,9 @@ function convertHexToRgba(hexColor, opacity = 0.3) {
 
 // Main initialization function
 function initializeMarker(preferences) {
+  // Notify that extension is now active
+  notifyIconActive();
+  
   // Tool state variables
   let isHighlighterMode = false;
   let isEraserMode = false;
@@ -339,7 +362,7 @@ function initializeMarker(preferences) {
           <img id="webMarker_lineImg" class="webMarker_icon" alt="Line" title="Line">
         </a>
         <a id="webMarker_save" class="webMarker_tool">
-          <img id="webMarker_saveImg" class="webMarker_icon" alt="Save" title="Save Drawing">
+          <img id="webMarker_saveImg" class="webMarker_icon" alt="RC" title="Save Drawing">
         </a>
         <a id="webMarker_undo" class="webMarker_tool">
           <img id="webMarker_undoImg" class="webMarker_icon" alt="Undo" title="Undo">
@@ -921,9 +944,9 @@ function initializeMarker(preferences) {
 
   async function uploadToResearchCatalogue(svgData, filename, options = {}) {
     const {
-      mediaName = `Web Marker Drawing - ${new Date().toLocaleString()}`,
-      copyrightholder = 'Web Marker User',
-      description = `Drawing created with Web Marker on ${window.location.href}`,
+      mediaName = `RC Marker Drawing - ${new Date().toLocaleString()}`,
+      copyrightholder = 'RC Marker User',
+      description = `Drawing created with RC Marker on ${window.location.href}`,
       pageId = null,
       position = { x: 100, y: 100, w: 400, h: 300 }
     } = options;
@@ -1068,9 +1091,9 @@ function initializeMarker(preferences) {
           if (saveOption === "2") {
             // Upload single SVG (existing functionality)
             uploadToResearchCatalogue(svgData, filename, {
-              mediaName: `Web Marker Drawing - ${new Date().toLocaleString()}`,
-              copyrightholder: prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User',
-              description: `Drawing created with Web Marker extension on ${window.location.href}`,
+              mediaName: `RC Marker Drawing - ${new Date().toLocaleString()}`,
+              copyrightholder: prompt('Copyright holder:', 'RC Marker User') || 'RC Marker User',
+              description: `Drawing created with RC Marker extension on ${window.location.href}`,
               pageId: pageId,
               position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
             }).then((result) => {
@@ -1090,7 +1113,7 @@ function initializeMarker(preferences) {
             });
           } else if (saveOption === "3") {
             // Upload individual paths (new functionality)
-            const copyrightholder = prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User';
+            const copyrightholder = prompt('Copyright holder:', 'RC Marker User') || 'RC Marker User';
             uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
               .then((results) => {
                 const successfulUploads = results.filter(r => !r.error).length;
@@ -1390,7 +1413,7 @@ function initializeMarker(preferences) {
 
     if (fabricCanvas.getHeight() > 25000) {
       alert(
-        "Web Marker does not support pages with this height. Please try again on a different website."
+        "RC Marker does not support pages with this height."
       );
       exitMarker();
     }

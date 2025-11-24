@@ -1,8 +1,71 @@
-// Web Marker Extension - Background Script
+// RC Marker Extension - Background Script
 // Handles extension lifecycle and communication between content scripts
 
 // Track which tabs have fabric.js loaded to avoid duplicate loading
 var fabricLoadedTabs = {};
+
+// Track extension activation state per tab
+var extensionActiveState = {};
+
+// Icon state management
+function setIconActive(tabId) {
+  chrome.browserAction.setIcon({
+    path: "rc.png",
+    tabId: tabId
+  });
+  extensionActiveState[tabId] = true;
+}
+
+function setIconInactive(tabId) {
+  // Generate grayed out icon programmatically
+  generateGrayedIcon().then(function(grayIconDataUrl) {
+    chrome.browserAction.setIcon({
+      imageData: grayIconDataUrl,
+      tabId: tabId
+    });
+    extensionActiveState[tabId] = false;
+  });
+}
+
+function generateGrayedIcon() {
+  return new Promise(function(resolve) {
+    // Create a canvas to generate grayed out icon
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    var img = new Image();
+    
+    img.onload = function() {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Draw the original image
+      ctx.drawImage(img, 0, 0);
+      
+      // Apply grayscale filter
+      var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var data = imageData.data;
+      
+      for (var i = 0; i < data.length; i += 4) {
+        // Calculate grayscale value
+        var gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        // Reduce opacity to make it more subdued
+        data[i] = gray;     // red
+        data[i + 1] = gray; // green
+        data[i + 2] = gray; // blue
+        data[i + 3] = data[i + 3] * 0.5; // alpha (50% transparency)
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Convert to ImageData object for browser action
+      var grayImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      resolve(grayImageData);
+    };
+    
+    // Load the rc.png icon
+    img.src = chrome.runtime.getURL('rc.png');
+  });
+}
 
 // Handle browser action click (extension icon click)
 chrome.browserAction.onClicked.addListener(function(tab) {
@@ -31,12 +94,16 @@ chrome.browserAction.onClicked.addListener(function(tab) {
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
   if (changeInfo.status === 'loading') {
     fabricLoadedTabs[tabId] = false;
+    // Reset icon to inactive when page loads
+    setIconInactive(tabId);
+    delete extensionActiveState[tabId];
   }
 });
 
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener(function(tabId, removeInfo) {
   delete fabricLoadedTabs[tabId];
+  delete extensionActiveState[tabId];
 });
 
 // Initialize the marker interface on the specified tab
@@ -93,6 +160,17 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     });
   }
   
+  // Handle activation state changes
+  if (request.action === 'setIconActive') {
+    setIconActive(sender.tab.id);
+    sendResponse({success: true});
+  }
+  
+  if (request.action === 'setIconInactive') {
+    setIconInactive(sender.tab.id);
+    sendResponse({success: true});
+  }
+  
   // Return true to indicate we will send a response asynchronously
   return true;
 });
@@ -100,14 +178,6 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(function (details) {
   if (details.reason === "install") {
-    // Open welcome page on first install
-    chrome.tabs.create({
-      url: "https://firefox-marker-website.vercel.app/installed.html"
-    }, function (tab) {
-      console.log("Extension installed successfully!");
-    });
+    console.log("Extension installed successfully!");
   }
 });
-
-// Set uninstall URL for feedback
-chrome.runtime.setUninstallURL("https://firefox-marker-website.vercel.app/uninstalled.html");

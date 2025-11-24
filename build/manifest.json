@@ -1,5 +1,5 @@
 {
-  "name": "Page Marker",
+  "name": "RC Marker",
   "description": "Draw on any webpage with markers, highlighters, and text tools",
   "version": "2.0",
   "permissions": [
@@ -8,10 +8,10 @@
     "<all_urls>"
   ],
   "icons": {
-    "128": "icon.png"
+    "128": "rc.png"
   },
   "browser_action": {
-    "default_icon": "icon.png",
+    "default_icon": "rc.png",
     "default_title": "Web Marker"
   },
   "background": {
@@ -32,7 +32,7 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "jiregnaG@gmail.com",
+      "id": "support@researchcatalogue.net",
       "strict_min_version": "88.0"
     }
   },
@@ -44,6 +44,7 @@
     "marker.png",
     "eraser.png",
     "save.png",
+    "rc.png",
     "pointer.png",
     "highlighter.png",
     "clear.png",
