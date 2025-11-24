@@ -20,6 +20,16 @@
     ],
     "persistent": true
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.researchcatalogue.net/view/*"
+      ],
+      "js": ["fabric.min.js", "marker.js"],
+      "css": ["main.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "jiregnaG@gmail.com",

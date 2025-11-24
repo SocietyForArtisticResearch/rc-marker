@@ -5,7 +5,88 @@
 if (document.getElementById("webMarker_canvas")) {
   exitMarker();
 } else {
-  // Get user preferences from storage
+  // Helper: check whether current URL is an RC view page
+  function isRCViewPage() {
+    try {
+      return /^https:\/\/www\.researchcatalogue\.net\/view\//.test(window.location.href);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Helper: display a persistent message in the top-right corner
+  function showDisabledMessage() {
+    if (document.getElementById('rcp_disabled_message')) return;
+    const msg = document.createElement('div');
+    msg.id = 'rcp_disabled_message';
+    msg.textContent = 'RC Pencil is only enabled for RC graphical pages';
+    msg.style.cssText = `
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.78);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      z-index: 2147483647;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    `;
+    document.body.appendChild(msg);
+  }
+
+  // Helper: remove the disabled message (if present)
+  function removeDisabledMessage() {
+    const el = document.getElementById('rcp_disabled_message');
+    if (el) el.remove();
+  }
+
+  // Helper: wait for the page to become 'weave-graphical' (MutationObserver) then init
+  function waitForGraphicalAndInit(preferences, maxWait = 3000) {
+    const docEl = document.documentElement;
+
+    function startInit() {
+      removeDisabledMessage();
+      initializeMarker(preferences);
+    }
+
+    // Immediate check
+    if (docEl.classList && docEl.classList.contains('weave-graphical')) {
+      startInit();
+      return;
+    }
+
+    // Use MutationObserver to detect class changes
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'attributes' && m.attributeName === 'class') {
+          if (docEl.classList.contains('weave-graphical')) {
+            observer.disconnect();
+            startInit();
+            return;
+          }
+        }
+      }
+    });
+
+    observer.observe(docEl, { attributes: true, attributeFilter: ['class'] });
+
+    // Timeout fallback
+    const timeoutId = setTimeout(() => {
+      observer.disconnect();
+      showDisabledMessage();
+    }, maxWait);
+
+    // If we init, clear the timeout
+    const originalInit = startInit;
+    startInit = function() {
+      clearTimeout(timeoutId);
+      originalInit();
+    };
+  }
+
+  // Get user preferences from storage and decide whether to initialize
   chrome.storage.sync.get(
     {
       penColor: "#FF0000",
@@ -15,7 +96,14 @@ if (document.getElementById("webMarker_canvas")) {
       textSize: 20,
     },
     function (preferences) {
-      initializeMarker(preferences);
+      if (!isRCViewPage()) {
+        // Not an RC view URL - show message
+        showDisabledMessage();
+        return;
+      }
+
+      // If URL matches, wait for the page to be 'weave-graphical' (or timeout)
+      waitForGraphicalAndInit(preferences);
     }
   );
 }
