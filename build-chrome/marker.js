@@ -1,11 +1,138 @@
-// Web Marker - Content Script
-// This script creates a drawing interface overlay on web pages
+// RC Marker
+// Drawing interface overlay for RC graphical editor
 
 // Check if canvas already exists, if so exit, otherwise initialize
 if (document.getElementById("webMarker_canvas")) {
   exitMarker();
 } else {
-  // Get user preferences from storage
+  // Helper: check whether current URL is an RC view page
+  function isRCViewPage() {
+    try {
+      return /^https:\/\/www\.researchcatalogue\.net\/view\//.test(window.location.href);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Helper: display a persistent message in the top-right corner (generic)
+  function showMessage(text) {
+    let msg = document.getElementById('rcp_disabled_message');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.id = 'rcp_disabled_message';
+      msg.style.cssText = `
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: rgba(0,0,0,0.78);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        z-index: 2147483647;
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      `;
+      document.body.appendChild(msg);
+    }
+    msg.textContent = text;
+  }
+
+  // Backwards-compatible helper: notify inactive state for non-graphical pages (no message)
+  function showDisabledMessage() {
+    notifyIconInactive();
+  }
+
+  // Helper: remove the disabled message (if present)
+  function removeDisabledMessage() {
+    const el = document.getElementById('rcp_disabled_message');
+    if (el) el.remove();
+  }
+
+  // Helper: notify background script of activation state changes
+  function notifyIconActive() {
+    chrome.runtime.sendMessage({action: 'setIconActive'}, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('Failed to set icon active:', chrome.runtime.lastError);
+      }
+    });
+  }
+
+  function notifyIconInactive() {
+    chrome.runtime.sendMessage({action: 'setIconInactive'}, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('Failed to set icon inactive:', chrome.runtime.lastError);
+      }
+    });
+  }
+
+  // Helper: wait for the page to become 'weave-graphical' (MutationObserver) then check permissions and init
+  function waitForGraphicalAndInit(preferences, maxWait = 3000) {
+    const docEl = document.documentElement;
+
+    // Permission-check + init
+    async function checkPermissionsAndInit() {
+      removeDisabledMessage();
+
+      // Extract research/exposition id from URL (/view/<id>/...)
+      const m = window.location.href.match(/\/view\/(\d+)/);
+      const researchId = m ? m[1] : null;
+      if (!researchId) {
+        notifyIconInactive();
+        return;
+      }
+
+      const permUrl = `https://www.researchcatalogue.net/editor/permissions?research=${researchId}`;
+      try {
+        const resp = await fetch(permUrl, { method: 'GET', credentials: 'include' });
+        if (resp && resp.status === 200) {
+          // Permission granted
+          initializeMarker(preferences);
+        } else {
+          notifyIconInactive();
+        }
+      } catch (err) {
+        console.error('Permission check failed:', err);
+        notifyIconInactive();
+      }
+    }
+
+    // Immediate check
+    if (docEl.classList && docEl.classList.contains('weave-graphical')) {
+      checkPermissionsAndInit();
+      return;
+    }
+
+    // Use MutationObserver to detect class changes
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'attributes' && m.attributeName === 'class') {
+          if (docEl.classList.contains('weave-graphical')) {
+            observer.disconnect();
+            checkPermissionsAndInit();
+            return;
+          }
+        }
+      }
+    });
+
+    observer.observe(docEl, { attributes: true, attributeFilter: ['class'] });
+
+    // Timeout fallback
+    const timeoutId = setTimeout(() => {
+      observer.disconnect();
+      notifyIconInactive();
+    }, maxWait);
+
+    // If we init, clear the timeout when permission check starts
+    const originalCheck = checkPermissionsAndInit;
+    checkPermissionsAndInit = async function() {
+      clearTimeout(timeoutId);
+      await originalCheck();
+    };
+  }
+
+  // Get user preferences from storage and decide whether to initialize
   chrome.storage.sync.get(
     {
       penColor: "#FF0000",
@@ -15,13 +142,23 @@ if (document.getElementById("webMarker_canvas")) {
       textSize: 20,
     },
     function (preferences) {
-      initializeMarker(preferences);
+      if (!isRCViewPage()) {
+        // Not an RC view URL - show message
+        showDisabledMessage();
+        return;
+      }
+
+      // If URL matches, wait for the page to be 'weave-graphical' (or timeout)
+      waitForGraphicalAndInit(preferences);
     }
   );
 }
 
 // Function to remove the marker interface
 function exitMarker() {
+  // Notify that extension is now inactive
+  notifyIconInactive();
+  
   // Save canvas state before exiting
   const canvas = document.getElementById("webMarker_canvas");
   if (canvas && window.webMarkerFabricCanvas) {
@@ -86,6 +223,9 @@ function convertHexToRgba(hexColor, opacity = 0.3) {
 
 // Main initialization function
 function initializeMarker(preferences) {
+  // Notify that extension is now active
+  notifyIconActive();
+  
   // Tool state variables
   let isHighlighterMode = false;
   let isEraserMode = false;
@@ -101,6 +241,9 @@ function initializeMarker(preferences) {
   let canvasState = null;
   let undoStack = [];
   let redoStack = [];
+
+  // Copy-paste system
+  let clipboard = null;
 
   // Get page dimensions
   const body = document.body;
@@ -119,7 +262,7 @@ function initializeMarker(preferences) {
   const containerWeave = document.querySelector('#container-weave, .container-weave');
   let canvasWidth = document.body.clientWidth; // default fallback
   
-  // DEBUG: Analyze page structure to understand why scrolling might be broken
+  // get weave dimensions
   console.log("=== PAGE STRUCTURE DEBUG ===");
   console.log("document.scrollingElement:", document.scrollingElement);
   console.log("document.documentElement === document.scrollingElement:", document.documentElement === document.scrollingElement);
@@ -168,7 +311,7 @@ function initializeMarker(preferences) {
   console.log("Canvas created with width:", canvasWidth, "height:", canvasHeight);
   fabricCanvas.wrapperEl.id = "webMarker_canvas";
   
-  // Try to append canvas to the correct container
+  // Append canvas to the correct container (container-weave)
   const containerWeaveForCanvas = document.querySelector('#container-weave, .container-weave');
   if (containerWeaveForCanvas) {
     console.log("Appending canvas to container-weave");
@@ -222,7 +365,7 @@ function initializeMarker(preferences) {
           <img id="webMarker_lineImg" class="webMarker_icon" alt="Line" title="Line">
         </a>
         <a id="webMarker_save" class="webMarker_tool">
-          <img id="webMarker_saveImg" class="webMarker_icon" alt="Save" title="Save Drawing">
+          <img id="webMarker_saveImg" class="webMarker_icon" alt="RC" title="Save Drawing">
         </a>
         <a id="webMarker_undo" class="webMarker_tool">
           <img id="webMarker_undoImg" class="webMarker_icon" alt="Undo" title="Undo">
@@ -247,19 +390,6 @@ function initializeMarker(preferences) {
 
   // Position toolbar
   toolbar.style.top = scrollTop + "px";
-
-  // Add whiteboard link
-  const donateContainer = document.createElement("div");
-  donateContainer.id = "webMarker_donateContainer";
-  donateContainer.innerHTML = `
-      <a title="Whiteboard" id="webMarker_donate" class="webMarker_kofi-button" 
-         href="${chrome.runtime.getURL('whiteboard.html')}" target="_blank" style="padding:2px">
-         <div style="padding:2px">
-         WhiteBoard
-         </div>
-      </a>
-    `;
-  toolbar.appendChild(donateContainer);
 
   // Make toolbar draggable
   toolbar.addEventListener("mousedown", function (event) {
@@ -677,10 +807,22 @@ function initializeMarker(preferences) {
       }
       
       const results = [];
-      let processedCount = 0;
       
+      // Process each object sequentially to avoid timing issues
       for (let i = 0; i < canvasObjects.length; i++) {
         const obj = canvasObjects[i];
+        
+        console.log(`Processing object ${i + 1}/${canvasObjects.length}`);
+        console.log(`Object ${i + 1} details:`, {
+          type: obj.type,
+          stroke: obj.stroke,
+          fill: obj.fill,
+          opacity: obj.opacity,
+          color: obj.color,
+          isHighlighter: typeof obj.stroke === 'string' && obj.stroke.includes('rgba')
+        });
+        
+        console.log(`Starting upload for object ${i + 1}/${canvasObjects.length}`);
         
         // Update progress
         uploadStatus.textContent = `Uploading path ${i + 1}/${canvasObjects.length}...`;
@@ -688,37 +830,65 @@ function initializeMarker(preferences) {
         try {
           // Get object bounds
           const boundingRect = obj.getBoundingRect();
-          console.log(`Object ${i} bounds:`, boundingRect);
+          console.log(`Object ${i + 1} bounds:`, boundingRect);
           
-          // Create individual SVG for this object
+          // Create individual SVG for this object using the full canvas size to preserve scale
           const tempCanvas = new fabric.Canvas();
-          tempCanvas.setWidth(boundingRect.width + 20); // Add padding
-          tempCanvas.setHeight(boundingRect.height + 20);
+          tempCanvas.setWidth(fabricCanvas.getWidth());
+          tempCanvas.setHeight(fabricCanvas.getHeight());
           
-          // Clone object and center it in temp canvas
-          const clonedObj = await new Promise((resolve) => {
-            obj.clone((cloned) => {
-              cloned.set({
-                left: 10, // Padding offset
-                top: 10,
-                originX: 'left',
-                originY: 'top'
+          // Clone object and preserve its exact position and properties
+          console.log(`Cloning object ${i + 1}...`);
+          const clonedObj = await new Promise((resolve, reject) => {
+            try {
+              obj.clone((cloned) => {
+                // Keep the exact same position and properties as the original
+                cloned.set({
+                  left: obj.left,
+                  top: obj.top,
+                  scaleX: obj.scaleX || 1,
+                  scaleY: obj.scaleY || 1,
+                  angle: obj.angle || 0,
+                  strokeWidth: obj.strokeWidth,
+                  stroke: obj.stroke,
+                  fill: obj.fill,
+                  opacity: obj.opacity
+                });
+                resolve(cloned);
               });
-              resolve(cloned);
-            });
+            } catch (error) {
+              reject(error);
+            }
           });
           
           tempCanvas.add(clonedObj);
-          const pathSVG = tempCanvas.toSVG();
+          tempCanvas.renderAll(); // Ensure rendering is complete
+          
+          // Create SVG with a viewBox that crops to just the object's area
+          const padding = 10;
+          const cropX = Math.max(0, boundingRect.left - padding);
+          const cropY = Math.max(0, boundingRect.top - padding);
+          const cropWidth = boundingRect.width + (2 * padding);
+          const cropHeight = boundingRect.height + (2 * padding);
+          
+          // Get the full SVG and then crop it using viewBox
+          const fullSVG = tempCanvas.toSVG();
+          const pathSVG = fullSVG.replace(
+            /<svg[^>]*>/,
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${cropX} ${cropY} ${cropWidth} ${cropHeight}" width="${cropWidth}" height="${cropHeight}">`
+          );
+          
+          console.log(`Generated SVG for object ${i + 1}, length: ${pathSVG.length}`);
           
           // Generate filename for this path
-          const pathFilename = `WebMarker_Path_${i + 1}_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.svg`;
+          const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '');
+          const pathFilename = `RC_Marker_Path_${i + 1}_${timestamp}.svg`;
           
           // Upload this individual path
-          const mediaName = `Web Marker Path ${i + 1} - ${new Date().toLocaleString()}`;
-          const description = `Individual drawing path ${i + 1} created with Web Marker extension on ${window.location.href}`;
+          const mediaName = `RC Marker Path ${i + 1} - ${new Date().toLocaleString()}`;
+          const description = `Path ${i + 1} created with RC Marker extension on ${window.location.href}`;
           
-          console.log(`Uploading path ${i + 1}:`, mediaName);
+          console.log(`Starting upload for path ${i + 1}:`, mediaName);
           
           const result = await uploadToResearchCatalogue(pathSVG, pathFilename, {
             mediaName: mediaName,
@@ -726,10 +896,10 @@ function initializeMarker(preferences) {
             description: description,
             pageId: pageId,
             position: { 
-              x: Math.round(boundingRect.left), 
-              y: Math.round(boundingRect.top), 
-              w: Math.round(boundingRect.width), 
-              h: Math.round(boundingRect.height) 
+              x: Math.round(cropX), // Use cropX instead of boundingRect.left to account for padding offset
+              y: Math.round(cropY), // Use cropY instead of boundingRect.top to account for padding offset
+              w: Math.round(cropWidth), 
+              h: Math.round(cropHeight) 
             }
           });
           
@@ -737,19 +907,36 @@ function initializeMarker(preferences) {
             objectIndex: i,
             mediaId: result.mediaId,
             itemId: result.itemId,
-            bounds: boundingRect
+            bounds: boundingRect,
+            filename: pathFilename
           });
           
-          processedCount++;
-          console.log(`Successfully uploaded path ${i + 1}:`, result);
+          console.log(`Successfully uploaded path ${i + 1}/${canvasObjects.length}:`, result);
+          console.log(`Marked object ${i + 1} as uploaded with MediaID: ${result.mediaId}, ItemID: ${result.itemId}`);
+          
+          // Small delay between uploads to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
           
         } catch (error) {
           console.error(`Failed to upload path ${i + 1}:`, error);
           // Continue with other paths even if one fails
+          results.push({
+            objectIndex: i,
+            error: error.message,
+            bounds: obj.getBoundingRect()
+          });
         }
       }
       
-      console.log(`Upload complete: ${processedCount}/${canvasObjects.length} paths uploaded successfully`);
+      const successfulUploads = results.filter(r => !r.error).length;
+      const failedUploads = results.filter(r => r.error).length;
+      console.log(`Upload complete: ${successfulUploads}/${canvasObjects.length} paths uploaded successfully, ${failedUploads} failed`);
+      console.log('All results:', results);
+      
+      if (successfulUploads === 0) {
+        throw new Error('All path uploads failed');
+      }
+      
       return results;
       
     } catch (error) {
@@ -760,9 +947,9 @@ function initializeMarker(preferences) {
 
   async function uploadToResearchCatalogue(svgData, filename, options = {}) {
     const {
-      mediaName = `Web Marker Drawing - ${new Date().toLocaleString()}`,
-      copyrightholder = 'Web Marker User',
-      description = `Drawing created with Web Marker on ${window.location.href}`,
+      mediaName = `RC Marker Drawing - ${new Date().toLocaleString()}`,
+      copyrightholder = 'RC Marker User',
+      description = `Drawing created with RC Marker on ${window.location.href}`,
       pageId = null,
       position = { x: 100, y: 100, w: 400, h: 300 }
     } = options;
@@ -830,22 +1017,25 @@ function initializeMarker(preferences) {
       const saveOption = prompt(
         "Choose save option:\n\n" +
         "1 = Download locally only\n" +
-        "2 = Download + Upload single SVG to Research Catalogue\n" +
-        "3 = Download + Upload individual paths to Research Catalogue\n\n" +
+        "2 = Upload single SVG to Research Catalogue\n" +
+        "3 = Upload individual paths to Research Catalogue\n\n" +
         "Enter your choice (1, 2, or 3):", 
         "1"
       );
       
       console.log("Save options result:", saveOption);
 
-      // Always download locally first
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-      const downloadLink = document.createElement("a");
-      downloadLink.download = filename;
-      downloadLink.href = URL.createObjectURL(svgBlob);
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
+      // Download locally only for option 1
+      if (saveOption === "1") {
+        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+        const downloadLink = document.createElement("a");
+        downloadLink.download = filename;
+        downloadLink.href = URL.createObjectURL(svgBlob);
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        console.log("File downloaded locally");
+      }
 
       // Handle the different save options
       if (saveOption === "2" || saveOption === "3") {
@@ -873,7 +1063,6 @@ function initializeMarker(preferences) {
             font-size: 14px;
           `;
           uploadStatus.textContent = saveOption === "2" ? 'Uploading single SVG to Research Catalogue...' : 'Uploading individual paths to Research Catalogue...';
-          document.body.appendChild(uploadStatus);
           document.body.appendChild(uploadStatus);
           
           // Extract page ID if we're viewing a specific page
@@ -905,9 +1094,9 @@ function initializeMarker(preferences) {
           if (saveOption === "2") {
             // Upload single SVG (existing functionality)
             uploadToResearchCatalogue(svgData, filename, {
-              mediaName: `Web Marker Drawing - ${new Date().toLocaleString()}`,
-              copyrightholder: prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User',
-              description: `Drawing created with Web Marker extension on ${window.location.href}`,
+              mediaName: `RC Marker Drawing - ${new Date().toLocaleString()}`,
+              copyrightholder: prompt('Copyright holder:', 'RC Marker User') || 'RC Marker User',
+              description: `Drawing created with RC Marker extension on ${window.location.href}`,
               pageId: pageId,
               position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
             }).then((result) => {
@@ -927,14 +1116,44 @@ function initializeMarker(preferences) {
             });
           } else if (saveOption === "3") {
             // Upload individual paths (new functionality)
-            const copyrightholder = prompt('Copyright holder:', 'Web Marker User') || 'Web Marker User';
+            const copyrightholder = prompt('Copyright holder:', 'RC Marker User') || 'RC Marker User';
             uploadIndividualPathsToRC(pageId, copyrightholder, uploadStatus)
               .then((results) => {
-                uploadStatus.style.background = '#4CAF50';
-                uploadStatus.textContent = `✓ Successfully uploaded ${results.length} paths to RC!`;
-                setTimeout(() => {
-                  document.body.removeChild(uploadStatus);
-                }, 5000);
+                const successfulUploads = results.filter(r => !r.error).length;
+                const failedUploads = results.filter(r => r.error).length;
+                const totalObjects = fabricCanvas.getObjects().length;
+                
+                // Check if ALL paths were successfully uploaded (no failures)
+                const allPathsUploaded = successfulUploads === totalObjects && failedUploads === 0;
+                
+                if (allPathsUploaded) {
+                  uploadStatus.style.background = '#4CAF50';
+                  uploadStatus.textContent = `✓ All ${totalObjects} paths uploaded successfully! Clearing canvas and reloading...`;
+                  
+                  console.log(`🎉 All ${totalObjects} paths successfully uploaded to RC! Clearing canvas and reloading page.`);
+                  
+                  // Wait a moment to show the success message, then clear and reload
+                  setTimeout(() => {
+                    // Clear the canvas
+                    fabricCanvas.clear();
+                    saveCanvasState();
+                    console.log('Canvas cleared after successful upload');
+                    
+                    // Reload the page after a short delay
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1000);
+                  }, 2000);
+                } else {
+                  // Some uploads failed
+                  uploadStatus.style.background = '#f44336'; // Red for failures
+                  uploadStatus.textContent = `✗ ${successfulUploads}/${totalObjects} uploaded successfully, ${failedUploads} failed`;
+                  
+                  setTimeout(() => {
+                    document.body.removeChild(uploadStatus);
+                  }, 8000);
+                }
+                
                 console.log('RC multi-path upload results:', results);
               })
               .catch((error) => {
@@ -953,48 +1172,6 @@ function initializeMarker(preferences) {
       } else {
         console.log("User chose local download only");
       }
-
-      // Open preview window
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Web Marker Drawing</title>
-          <style>
-            body { 
-              font-family: Arial, sans-serif; 
-              margin: 20px; 
-              background-color: #f5f5f5; 
-            }
-            .container { 
-              background: white; 
-              padding: 20px; 
-              border-radius: 8px; 
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-            }
-            svg { 
-              border: 1px solid #ddd; 
-              border-radius: 4px; 
-              background: white; 
-              max-width: 100%; 
-              height: auto; 
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Web Marker Drawing</h1>
-            <p>Created: ${new Date().toLocaleString()}</p>
-            <p>Original URL: <a href="${window.location.href}" target="_blank">${window.location.href}</a></p>
-            ${svgData}
-          </div>
-        </body>
-        </html>
-      `;
-      
-      const htmlBlob = new Blob([htmlContent], { type: "text/html" });
-      const previewUrl = URL.createObjectURL(htmlBlob);
-      window.open(previewUrl);
 
       console.log("Canvas exported as SVG successfully");
       
@@ -1239,7 +1416,7 @@ function initializeMarker(preferences) {
 
     if (fabricCanvas.getHeight() > 25000) {
       alert(
-        "Web Marker does not support pages with this height. Please try again on a different website."
+        "RC Marker does not support pages with this height."
       );
       exitMarker();
     }
@@ -1262,6 +1439,64 @@ function initializeMarker(preferences) {
       }
       fabricCanvas.discardActiveObject().renderAll();
       saveCanvasState();
+    }
+
+    // Copy selected objects with Ctrl+C (only in move mode)
+    if (event.code === "KeyC" && (event.ctrlKey || event.metaKey) && isMoveMode && !isEditingText && !isTextMode) {
+      const activeObjects = fabricCanvas.getActiveObjects();
+      if (activeObjects.length > 0) {
+        // Clone the selected objects for clipboard
+        const objectsToClone = activeObjects.length === 1 ? [activeObjects[0]] : activeObjects;
+        clipboard = [];
+        
+        objectsToClone.forEach(function(obj) {
+          obj.clone(function(cloned) {
+            clipboard.push(cloned);
+          });
+        });
+        
+        console.log(`Copied ${objectsToClone.length} object(s) to clipboard`);
+        event.preventDefault();
+      }
+    }
+
+    // Paste objects with Ctrl+V (only in move mode)
+    if (event.code === "KeyV" && (event.ctrlKey || event.metaKey) && isMoveMode && !isEditingText && !isTextMode && clipboard && clipboard.length > 0) {
+      // Clear current selection
+      fabricCanvas.discardActiveObject();
+      
+      const pastedObjects = [];
+      clipboard.forEach(function(obj) {
+        obj.clone(function(cloned) {
+          // Offset the pasted object slightly so it's visible
+          cloned.set({
+            left: cloned.left + 20,
+            top: cloned.top + 20,
+            selectable: true,
+            hoverCursor: "move"
+          });
+          
+          fabricCanvas.add(cloned);
+          pastedObjects.push(cloned);
+        });
+      });
+      
+      // Select the pasted objects
+      setTimeout(function() {
+        if (pastedObjects.length === 1) {
+          fabricCanvas.setActiveObject(pastedObjects[0]);
+        } else if (pastedObjects.length > 1) {
+          const selection = new fabric.ActiveSelection(pastedObjects, {
+            canvas: fabricCanvas
+          });
+          fabricCanvas.setActiveObject(selection);
+        }
+        fabricCanvas.renderAll();
+        saveCanvasState();
+      }, 10);
+      
+      console.log(`Pasted ${clipboard.length} object(s) from clipboard`);
+      event.preventDefault();
     }
 
     // Exit with Escape

@@ -1,7 +1,7 @@
 {
   "name": "RC Marker",
-  "description": "Draw on any webpage with markers, highlighters, and text tools",
-  "version": "2.0",
+  "description": "Draw on RC graphical pages with markers and highlighters",
+  "version": "1.0",
   "permissions": [
     "activeTab",
     "storage",
@@ -12,7 +12,7 @@
   },
   "browser_action": {
     "default_icon": "rc.png",
-    "default_title": "Web Marker"
+    "default_title": "RC Marker"
   },
   "background": {
     "scripts": [
@@ -55,8 +55,7 @@
     "line.png",
     "text.png",
     "move.png",
-    "main.css",
-    "whiteboard.html"
+    "main.css"
   ],
   "manifest_version": 2
 }
