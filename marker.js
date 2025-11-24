@@ -248,19 +248,6 @@ function initializeMarker(preferences) {
   // Position toolbar
   toolbar.style.top = scrollTop + "px";
 
-  // Add whiteboard link
-  const donateContainer = document.createElement("div");
-  donateContainer.id = "webMarker_donateContainer";
-  donateContainer.innerHTML = `
-      <a title="Whiteboard" id="webMarker_donate" class="webMarker_kofi-button" 
-         href="${chrome.runtime.getURL('whiteboard.html')}" target="_blank" style="padding:2px">
-         <div style="padding:2px">
-         WhiteBoard
-         </div>
-      </a>
-    `;
-  toolbar.appendChild(donateContainer);
-
   // Make toolbar draggable
   toolbar.addEventListener("mousedown", function (event) {
     const offsetX =
