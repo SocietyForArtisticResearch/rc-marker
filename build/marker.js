@@ -14,26 +14,33 @@ if (document.getElementById("webMarker_canvas")) {
     }
   }
 
-  // Helper: display a persistent message in the top-right corner
+  // Helper: display a persistent message in the top-right corner (generic)
+  function showMessage(text) {
+    let msg = document.getElementById('rcp_disabled_message');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.id = 'rcp_disabled_message';
+      msg.style.cssText = `
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: rgba(0,0,0,0.78);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        z-index: 2147483647;
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      `;
+      document.body.appendChild(msg);
+    }
+    msg.textContent = text;
+  }
+
+  // Backwards-compatible helper: show the disabled message for non-graphical pages
   function showDisabledMessage() {
-    if (document.getElementById('rcp_disabled_message')) return;
-    const msg = document.createElement('div');
-    msg.id = 'rcp_disabled_message';
-    msg.textContent = 'RC Pencil is only enabled for RC graphical pages';
-    msg.style.cssText = `
-      position: fixed;
-      top: 12px;
-      right: 12px;
-      background: rgba(0,0,0,0.78);
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 6px;
-      z-index: 2147483647;
-      font-family: Arial, sans-serif;
-      font-size: 13px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    `;
-    document.body.appendChild(msg);
+    showMessage('RC Pencil is only enabled for RC graphical pages');
   }
 
   // Helper: remove the disabled message (if present)
@@ -42,18 +49,40 @@ if (document.getElementById("webMarker_canvas")) {
     if (el) el.remove();
   }
 
-  // Helper: wait for the page to become 'weave-graphical' (MutationObserver) then init
+  // Helper: wait for the page to become 'weave-graphical' (MutationObserver) then check permissions and init
   function waitForGraphicalAndInit(preferences, maxWait = 3000) {
     const docEl = document.documentElement;
 
-    function startInit() {
+    // Permission-check + init
+    async function checkPermissionsAndInit() {
       removeDisabledMessage();
-      initializeMarker(preferences);
+
+      // Extract research/exposition id from URL (/view/<id>/...)
+      const m = window.location.href.match(/\/view\/(\d+)/);
+      const researchId = m ? m[1] : null;
+      if (!researchId) {
+        showMessage('you cannot edit this exposition');
+        return;
+      }
+
+      const permUrl = `https://www.researchcatalogue.net/editor/permissions?research=${researchId}`;
+      try {
+        const resp = await fetch(permUrl, { method: 'GET', credentials: 'include' });
+        if (resp && resp.status === 200) {
+          // Permission granted
+          initializeMarker(preferences);
+        } else {
+          showMessage('you cannot edit this exposition');
+        }
+      } catch (err) {
+        console.error('Permission check failed:', err);
+        showMessage('you cannot edit this exposition');
+      }
     }
 
     // Immediate check
     if (docEl.classList && docEl.classList.contains('weave-graphical')) {
-      startInit();
+      checkPermissionsAndInit();
       return;
     }
 
@@ -63,7 +92,7 @@ if (document.getElementById("webMarker_canvas")) {
         if (m.type === 'attributes' && m.attributeName === 'class') {
           if (docEl.classList.contains('weave-graphical')) {
             observer.disconnect();
-            startInit();
+            checkPermissionsAndInit();
             return;
           }
         }
@@ -78,11 +107,11 @@ if (document.getElementById("webMarker_canvas")) {
       showDisabledMessage();
     }, maxWait);
 
-    // If we init, clear the timeout
-    const originalInit = startInit;
-    startInit = function() {
+    // If we init, clear the timeout when permission check starts
+    const originalCheck = checkPermissionsAndInit;
+    checkPermissionsAndInit = async function() {
       clearTimeout(timeoutId);
-      originalInit();
+      await originalCheck();
     };
   }
 
