@@ -33,7 +33,11 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "support@researchcatalogue.net",
-      "strict_min_version": "88.0"
+      "strict_min_version": "88.0",
+      "data_collection_permissions": {
+        "collect": false,
+        "required": ["none"]
+      }
     }
   },
   "options_ui": {
