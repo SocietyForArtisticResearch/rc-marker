@@ -329,6 +329,9 @@ function initializeMarker(preferences) {
   // Make canvas globally accessible for persistence
   window.webMarkerFabricCanvas = fabricCanvas;
 
+  // Save initial empty canvas state for undo system
+  canvasState = JSON.stringify(fabricCanvas);
+
   // Create toolbar
   const toolbar = document.createElement("div");
   toolbar.id = "webMarker_draggable";
