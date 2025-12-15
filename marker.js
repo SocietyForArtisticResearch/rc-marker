@@ -368,7 +368,7 @@ function initializeMarker(preferences) {
           <img id="webMarker_lineImg" class="webMarker_icon" alt="Line" title="Line">
         </a>
         <a id="webMarker_save" class="webMarker_tool">
-          <img id="webMarker_saveImg" class="webMarker_icon" alt="RC" title="Save Drawing">
+          <img id="webMarker_saveImg" class="webMarker_icon" alt="RC" title="Upload to RC">
         </a>
         <a id="webMarker_undo" class="webMarker_tool">
           <img id="webMarker_undoImg" class="webMarker_icon" alt="Undo" title="Undo">
@@ -379,8 +379,8 @@ function initializeMarker(preferences) {
         <a id="webMarker_clear" class="webMarker_tool">
           <img id="webMarker_clearImg" class="webMarker_icon" alt="Clear" title="Clear">
         </a>
-        <a id="webMarker_exit" class="webMarker_tool">
-          <img id="webMarker_exitImg" class="webMarker_icon" alt="Exit" title="Exit">
+        <a id="webMarker_info" class="webMarker_tool">
+          <img id="webMarker_infoImg" class="webMarker_icon" alt="Exit" title="Info" onclick="window.open('https://www.researchcatalogue.net/view/4043477/4043478')">
         </a>
       </div>
     </div>
@@ -444,8 +444,7 @@ function initializeMarker(preferences) {
     saveDrawing,
     undoAction,
     redoAction,
-    clearCanvas,
-    exitMarker,
+    clearCanvas
   ];
 
   toolButtons.forEach(function (button, index) {
