@@ -252,16 +252,23 @@ function initializeMarker(preferences) {
 
   // Parse RC weave dimensions from the #weave element
   const weaveElement = document.querySelector('#weave');
-  let canvasWidth = document.body.clientWidth; // default fallback
+  
+  // Get viewport dimensions as minimum constraints
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  let canvasWidth = Math.max(document.body.clientWidth, viewportWidth); // default fallback with viewport minimum
   let canvasHeight = Math.max(
     body.scrollHeight,
     body.offsetHeight,
     documentElement.clientHeight,
     documentElement.scrollHeight,
-    documentElement.offsetHeight
+    documentElement.offsetHeight,
+    viewportHeight
   );
 
   console.log("=== RC WEAVE DIMENSION PARSING ===");
+  console.log("Viewport dimensions:", viewportWidth, "x", viewportHeight);
   
   if (weaveElement) {
     const weaveStyle = weaveElement.style;
@@ -271,8 +278,10 @@ function initializeMarker(preferences) {
     if (weaveStyle.width) {
       const widthMatch = weaveStyle.width.match(/(\d+)px/);
       if (widthMatch) {
-        canvasWidth = parseInt(widthMatch[1]);
-        console.log("Parsed weave width:", canvasWidth, "px from style:", weaveStyle.width);
+        const weaveWidth = parseInt(widthMatch[1]);
+        // Use the larger of weave width or viewport width
+        canvasWidth = Math.max(weaveWidth, viewportWidth);
+        console.log("Parsed weave width:", weaveWidth, "px, using canvas width:", canvasWidth, "px (max of weave and viewport)");
       }
     }
     
@@ -280,14 +289,16 @@ function initializeMarker(preferences) {
     if (weaveStyle.height) {
       const heightMatch = weaveStyle.height.match(/(\d+)px/);
       if (heightMatch) {
-        canvasHeight = parseInt(heightMatch[1]);
-        console.log("Parsed weave height:", canvasHeight, "px from style:", weaveStyle.height);
+        const weaveHeight = parseInt(heightMatch[1]);
+        // Use the larger of weave height or viewport height
+        canvasHeight = Math.max(weaveHeight, viewportHeight);
+        console.log("Parsed weave height:", weaveHeight, "px, using canvas height:", canvasHeight, "px (max of weave and viewport)");
       }
     }
     
-    console.log("Final canvas dimensions from weave:", canvasWidth, "x", canvasHeight);
+    console.log("Final canvas dimensions (weave constrained by viewport minimum):", canvasWidth, "x", canvasHeight);
   } else {
-    console.log("No #weave element found, using fallback dimensions");
+    console.log("No #weave element found, using fallback dimensions with viewport minimum");
     
     // Fallback to container-weave detection
     const containerWeave = document.querySelector('#container-weave, .container-weave');
