@@ -245,11 +245,14 @@ function initializeMarker(preferences) {
   // Copy-paste system
   let clipboard = null;
 
-  // Get page dimensions
+  // Get page dimensions by parsing the RC weave element
   const body = document.body;
   const documentElement = document.documentElement;
   const scrollTop = body.scrollTop || documentElement.scrollTop;
 
+  // Parse RC weave dimensions from the #weave element
+  const weaveElement = document.querySelector('#weave');
+  let canvasWidth = document.body.clientWidth; // default fallback
   let canvasHeight = Math.max(
     body.scrollHeight,
     body.offsetHeight,
@@ -258,39 +261,52 @@ function initializeMarker(preferences) {
     documentElement.offsetHeight
   );
 
-  // Detect the scrolling container-weave and get the actual scrollable width
-  const containerWeave = document.querySelector('#container-weave, .container-weave');
-  let canvasWidth = document.body.clientWidth; // default fallback
+  console.log("=== RC WEAVE DIMENSION PARSING ===");
   
-  // get weave dimensions
-  console.log("=== PAGE STRUCTURE DEBUG ===");
-  console.log("document.scrollingElement:", document.scrollingElement);
-  console.log("document.documentElement === document.scrollingElement:", document.documentElement === document.scrollingElement);
-  console.log("body overflow:", window.getComputedStyle(body).overflow);
-  console.log("documentElement overflow:", window.getComputedStyle(documentElement).overflow);
-  console.log("body position:", window.getComputedStyle(body).position);
-  console.log("documentElement position:", window.getComputedStyle(documentElement).position);
-  
-  if (containerWeave) {
-    console.log("container-weave position:", window.getComputedStyle(containerWeave).position);
-    console.log("container-weave overflow:", window.getComputedStyle(containerWeave).overflow);
-    console.log("container-weave parent:", containerWeave.parentElement.tagName, containerWeave.parentElement.className);
-    console.log("Is container-weave the scrolling element?", containerWeave.scrollHeight > containerWeave.clientHeight);
-    canvasWidth = containerWeave.scrollWidth;
-    console.log("Using container-weave width:", canvasWidth, "instead of viewport width:", window.innerWidth);
+  if (weaveElement) {
+    const weaveStyle = weaveElement.style;
+    console.log("Found #weave element with style:", weaveStyle.cssText);
+    
+    // Parse width from style attribute (e.g., "width:8947px")
+    if (weaveStyle.width) {
+      const widthMatch = weaveStyle.width.match(/(\d+)px/);
+      if (widthMatch) {
+        canvasWidth = parseInt(widthMatch[1]);
+        console.log("Parsed weave width:", canvasWidth, "px from style:", weaveStyle.width);
+      }
+    }
+    
+    // Parse height from style attribute (e.g., "height:7748px")
+    if (weaveStyle.height) {
+      const heightMatch = weaveStyle.height.match(/(\d+)px/);
+      if (heightMatch) {
+        canvasHeight = parseInt(heightMatch[1]);
+        console.log("Parsed weave height:", canvasHeight, "px from style:", weaveStyle.height);
+      }
+    }
+    
+    console.log("Final canvas dimensions from weave:", canvasWidth, "x", canvasHeight);
   } else {
-    console.log("Using default body width:", canvasWidth);
+    console.log("No #weave element found, using fallback dimensions");
+    
+    // Fallback to container-weave detection
+    const containerWeave = document.querySelector('#container-weave, .container-weave');
+    if (containerWeave) {
+      canvasWidth = containerWeave.scrollWidth;
+      console.log("Using container-weave width:", canvasWidth);
+    }
+    
+    // Apply legacy height expansion logic for fallback
+    let maxHeight = 7500;
+    if (scrollTop + screen.height > maxHeight) {
+      maxHeight += Math.floor((scrollTop + screen.height) / 7500) * 7500;
+    }
+    if (maxHeight > canvasHeight) {
+      canvasHeight = maxHeight;
+    }
   }
-  console.log("============================");
-
-  let maxHeight = 7500;
-  if (scrollTop + screen.height > maxHeight) {
-    maxHeight += Math.floor((scrollTop + screen.height) / 7500) * 7500;
-  }
-
-  if (maxHeight > canvasHeight) {
-    canvasHeight = maxHeight;
-  }
+  
+  console.log("===================================");
 
   // Check if page is too tall
   if (canvasHeight > 25000) {
