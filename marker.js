@@ -1121,16 +1121,56 @@ function initializeMarker(preferences) {
           console.log("Using canvas dimensions:", canvasWidth, "x", canvasHeight);
           
           if (saveOption === "2") {
-            // Upload single SVG (existing functionality)
-            uploadToResearchCatalogue(svgData, filename, {
+            // Upload single SVG with bounding rectangle cropping
+            const canvasObjects = fabricCanvas.getObjects();
+            
+            if (canvasObjects.length === 0) {
+              uploadStatus.style.background = '#f44336';
+              uploadStatus.textContent = '✗ No drawing objects found on canvas';
+              setTimeout(() => {
+                document.body.removeChild(uploadStatus);
+              }, 5000);
+              return;
+            }
+            
+            // Calculate bounding rectangle of all objects
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            
+            canvasObjects.forEach(obj => {
+              const bounds = obj.getBoundingRect();
+              minX = Math.min(minX, bounds.left);
+              minY = Math.min(minY, bounds.top);
+              maxX = Math.max(maxX, bounds.left + bounds.width);
+              maxY = Math.max(maxY, bounds.top + bounds.height);
+            });
+            
+            // Add padding around the content
+            const padding = 20;
+            const cropX = Math.max(0, minX - padding);
+            const cropY = Math.max(0, minY - padding);
+            const cropWidth = (maxX - minX) + (2 * padding);
+            const cropHeight = (maxY - minY) + (2 * padding);
+            
+            console.log(`Calculated bounding rectangle: x=${cropX}, y=${cropY}, w=${cropWidth}, h=${cropHeight}`);
+            console.log(`Original bounds: minX=${minX}, minY=${minY}, maxX=${maxX}, maxY=${maxY}`);
+            
+            // Create cropped SVG using viewBox
+            const croppedSVG = svgData.replace(
+              /<svg[^>]*>/,
+              `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${cropX} ${cropY} ${cropWidth} ${cropHeight}" width="${cropWidth}" height="${cropHeight}">`
+            );
+            
+            console.log(`Created cropped SVG, length: ${croppedSVG.length} (vs original: ${svgData.length})`);
+            
+            uploadToResearchCatalogue(croppedSVG, filename, {
               mediaName: `RC Marker Drawing - ${new Date().toLocaleString()}`,
               copyrightholder: prompt('Copyright holder:', 'RC Marker User') || 'RC Marker User',
               description: `Drawing created with RC Marker extension on ${window.location.href}`,
               pageId: pageId,
-              position: { x: 0, y: 0, w: canvasWidth, h: canvasHeight }
+              position: { x: Math.round(cropX), y: Math.round(cropY), w: Math.round(cropWidth), h: Math.round(cropHeight) }
             }).then((result) => {
               uploadStatus.style.background = '#4CAF50';
-              uploadStatus.textContent = `✓ Successfully uploaded single SVG to RC! Media ID: ${result.mediaId}`;
+              uploadStatus.textContent = `✓ Successfully uploaded cropped SVG to RC! Media ID: ${result.mediaId}`;
               setTimeout(() => {
                 document.body.removeChild(uploadStatus);
               }, 5000);
