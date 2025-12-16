@@ -1,7 +1,7 @@
 {
   "name": "RC Marker",
   "description": "Draw on RC graphical pages with markers and highlighters",
-  "version": "1.0",
+  "version": "1.2",
   "permissions": [
     "activeTab",
     "storage",

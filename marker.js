@@ -380,7 +380,7 @@ function initializeMarker(preferences) {
           <img id="webMarker_clearImg" class="webMarker_icon" alt="Clear" title="Clear">
         </a>
         <a id="webMarker_info" class="webMarker_tool">
-          <img id="webMarker_infoImg" class="webMarker_icon" alt="Exit" title="Info" onclick="window.open('https://www.researchcatalogue.net/view/4043477/4043478')">
+          <img id="webMarker_infoImg" class="webMarker_icon" alt="Exit" title="Info" onclick="window.open('https://www.researchcatalogue.net/view/4043477/4061621')">
         </a>
       </div>
     </div>
